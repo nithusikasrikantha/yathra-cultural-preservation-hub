@@ -1,0 +1,17 @@
+# Node
+backend/node_modules/
+
+# Environment variables
+backend/.env
+
+# Flutter
+frontend/.dart_tool/
+frontend/build/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
