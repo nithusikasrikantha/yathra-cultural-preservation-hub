@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+
 import 'pages/share_story_page.dart';
+import 'pages/youth_profile_page.dart';
 
 void main() {
   runApp(const YathraApp());
@@ -27,6 +29,9 @@ class YathraApp extends StatelessWidget {
           elevation: 0,
         ),
       ),
+      routes: {
+        '/youth-profile': (context) => const YouthProfilePage(),
+      },
       home: const ShareStoryPage(),
     );
   }
