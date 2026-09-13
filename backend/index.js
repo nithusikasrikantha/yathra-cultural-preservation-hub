@@ -4,6 +4,7 @@ const express = require('express');
 
 const { connectToDatabase } = require('./config/db');
 const culturalContentRoutes = require('./routes/culturalContentRoutes');
+const youthProfileRoutes = require('./routes/youthProfileRoutes');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -18,6 +19,7 @@ app.get('/health', (req, res) => {
 });
 
 app.use('/api/cultural-content', culturalContentRoutes);
+app.use('/api/youth-profiles', youthProfileRoutes);
 
 async function startServer() {
   try {
