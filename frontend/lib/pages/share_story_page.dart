@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 
 enum RecordingState {
   notRecorded,
@@ -46,6 +47,10 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
   // Audio Recording & Playback state
   final AudioRecorder _audioRecorder = AudioRecorder();
   final AudioPlayer _audioPlayer = AudioPlayer();
+
+  // Speech to text engine
+  final SpeechToText _speechToText = SpeechToText();
+  bool _isConvertingToText = false;
 
   RecordingState _recordingState = RecordingState.notRecorded;
   String? _recordedFilePath;
@@ -104,6 +109,18 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     final String minutesStr = minutes.toString().padLeft(2, '0');
     final String secondsStr = seconds.toString().padLeft(2, '0');
     return '$minutesStr:$secondsStr';
+  }
+
+  String _getLocaleId() {
+    switch (_selectedLanguage) {
+      case 'Tamil':
+        return 'ta_LK';
+      case 'Sinhala':
+        return 'si_LK';
+      case 'English':
+      default:
+        return 'en_US';
+    }
   }
 
   // 1. Start Recording
@@ -221,6 +238,98 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     }
   }
 
+  // 6. Speech to Text Conversion (YTH-25)
+  Future<void> _convertVoiceToText() async {
+    if (_recordedFilePath == null || !File(_recordedFilePath!).existsSync()) {
+      _showSnackBar('No recorded audio file found to convert.');
+      return;
+    }
+
+    setState(() {
+      _isConvertingToText = true;
+    });
+
+    try {
+      bool available = await _speechToText.initialize(
+        onError: (val) {
+          if (mounted && _isConvertingToText) {
+            setState(() {
+              _isConvertingToText = false;
+            });
+            _showSnackBar('Speech recognition message: ${val.errorMsg}');
+          }
+        },
+        onStatus: (val) {
+          if ((val == 'done' || val == 'notListening') && mounted && _isConvertingToText) {
+            setState(() {
+              _isConvertingToText = false;
+            });
+          }
+        },
+      );
+
+      final String localeId = _getLocaleId();
+
+      if (!available) {
+        if (mounted) {
+          setState(() {
+            _isConvertingToText = false;
+          });
+          _showSnackBar('Speech recognition service is not available on this device.');
+        }
+        return;
+      }
+
+      String transcribedResult = '';
+
+      await _speechToText.listen(
+        listenOptions: SpeechListenOptions(
+          localeId: localeId,
+          listenMode: ListenMode.confirmation,
+          partialResults: true,
+        ),
+        onResult: (result) {
+          transcribedResult = result.recognizedWords;
+          if (transcribedResult.isNotEmpty && mounted) {
+            setState(() {
+              if (_storyController.text.trim().isEmpty) {
+                _storyController.text = transcribedResult;
+              } else {
+                _storyController.text = '${_storyController.text.trim()}\n\n$transcribedResult';
+              }
+            });
+          }
+        },
+      );
+
+      // Brief delay to allow recognition stream processing
+      await Future.delayed(const Duration(seconds: 3));
+
+      if (mounted) {
+        if (_speechToText.isListening) {
+          await _speechToText.stop();
+        }
+
+        setState(() {
+          _isConvertingToText = false;
+        });
+
+        if (_storyController.text.isNotEmpty) {
+          _showSnackBar('Voice converted to text! You can edit the story below.');
+        } else {
+          _showSnackBar('Speech-to-text complete. You can type or edit your story.');
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isConvertingToText = false;
+        });
+        _showSnackBar('Speech-to-text processing finished.');
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -321,7 +430,7 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
               ),
               const SizedBox(height: 28),
 
-              // 5. Voice Story Section (Interactive Voice Recording for YTH-24)
+              // 5. Voice Story Section (Interactive Voice Recording & Speech-to-Text)
               _buildSectionLabel('Voice Story'),
               const SizedBox(height: 8),
               _buildVoiceRecordingCard(),
@@ -596,6 +705,8 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
             ),
           ],
         ),
+        const SizedBox(height: 16),
+        _buildSpeechToTextButton(),
       ],
     );
   }
@@ -673,7 +784,63 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
             ),
           ],
         ),
+        const SizedBox(height: 16),
+        _buildSpeechToTextButton(),
       ],
+    );
+  }
+
+  Widget _buildSpeechToTextButton() {
+    if (_isConvertingToText) {
+      return Container(
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+        decoration: BoxDecoration(
+          color: _primaryBrown.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: _primaryBrown,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              'Converting voice to text ($_selectedLanguage)...',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: _darkBrown,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _primaryBrown,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+        icon: const Icon(Icons.record_voice_over, size: 22),
+        label: const Text(
+          'Convert Voice to Text',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        onPressed: _convertVoiceToText,
+      ),
     );
   }
 
