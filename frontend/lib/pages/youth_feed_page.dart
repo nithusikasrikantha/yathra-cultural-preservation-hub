@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-class YouthFeedPage extends StatelessWidget {
+class YouthFeedPage extends StatefulWidget {
   const YouthFeedPage({super.key});
 
   static const Color _bgColor = Color(0xFFF8F3EA);
@@ -12,6 +12,18 @@ class YouthFeedPage extends StatelessWidget {
     'All',
     'Folklore',
     'Food',
+    'Festivals',
+    'Music',
+    'Crafts',
+    'History',
+  ];
+
+  static const List<String> _filterTags = [
+    'Tamil',
+    'Sinhala',
+    'English',
+    'Folklore',
+    'Traditional Food',
     'Festivals',
     'Music',
     'Crafts',
@@ -82,7 +94,70 @@ class YouthFeedPage extends StatelessWidget {
   ];
 
   @override
+  State<YouthFeedPage> createState() => _YouthFeedPageState();
+}
+
+class _YouthFeedPageState extends State<YouthFeedPage> {
+  static const Color _bgColor = YouthFeedPage._bgColor;
+  static const Color _primaryBrown = YouthFeedPage._primaryBrown;
+  static const Color _darkBrown = YouthFeedPage._darkBrown;
+  static const List<String> _categories = YouthFeedPage._categories;
+
+  final TextEditingController _searchController = TextEditingController();
+
+  String _searchQuery = '';
+  String _selectedCategory = 'All';
+  final Set<String> _selectedTags = <String>{};
+
+  bool get _hasActiveFilters =>
+      _searchQuery.trim().isNotEmpty ||
+      _selectedCategory != 'All' ||
+      _selectedTags.isNotEmpty;
+
+  List<_CulturalStory> get _filteredStories {
+    final String query = _searchQuery.trim().toLowerCase();
+
+    return YouthFeedPage._stories.where((story) {
+      final bool matchesSearch =
+          query.isEmpty ||
+          story.title.toLowerCase().contains(query) ||
+          story.description.toLowerCase().contains(query) ||
+          story.category.toLowerCase().contains(query) ||
+          story.region.toLowerCase().contains(query) ||
+          story.contributor.toLowerCase().contains(query);
+
+      final bool matchesCategory =
+          _selectedCategory == 'All' ||
+          story.category == _selectedCategory ||
+          (_selectedCategory == 'Food' && story.category == 'Traditional Food');
+
+      final bool matchesTags =
+          _selectedTags.isEmpty ||
+          _selectedTags.any((tag) => story.matchesTag(tag));
+
+      return matchesSearch && matchesCategory && matchesTags;
+    }).toList();
+  }
+
+  void _clearFilters() {
+    setState(() {
+      _searchController.clear();
+      _searchQuery = '';
+      _selectedCategory = 'All';
+      _selectedTags.clear();
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final List<_CulturalStory> filteredStories = _filteredStories;
+
     return Scaffold(
       backgroundColor: _bgColor,
       appBar: AppBar(
@@ -122,10 +197,15 @@ class YouthFeedPage extends StatelessWidget {
             ),
             const SizedBox(height: 20),
             Semantics(
-              label: 'Search cultural stories placeholder',
+              label: 'Search cultural stories',
               textField: true,
               child: TextField(
-                enabled: false,
+                controller: _searchController,
+                onChanged: (value) {
+                  setState(() {
+                    _searchQuery = value;
+                  });
+                },
                 style: const TextStyle(fontSize: 16),
                 decoration: InputDecoration(
                   hintText: 'Search stories, places, or traditions',
@@ -136,10 +216,17 @@ class YouthFeedPage extends StatelessWidget {
                   prefixIcon: const Icon(Icons.search, color: _primaryBrown),
                   filled: true,
                   fillColor: Colors.white,
-                  disabledBorder: OutlineInputBorder(
+                  enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
                     borderSide: BorderSide(
                       color: _primaryBrown.withValues(alpha: 0.25),
+                      width: 1.5,
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: _primaryBrown,
                       width: 1.5,
                     ),
                   ),
@@ -159,12 +246,13 @@ class YouthFeedPage extends StatelessWidget {
                 separatorBuilder: (context, index) => const SizedBox(width: 10),
                 itemBuilder: (context, index) {
                   final String category = _categories[index];
-                  final bool isSelected = index == 0;
+                  final bool isSelected = category == _selectedCategory;
 
                   return Semantics(
                     label: '$category category chip',
+                    button: true,
                     selected: isSelected,
-                    child: Chip(
+                    child: ChoiceChip(
                       label: Text(
                         category,
                         style: TextStyle(
@@ -173,9 +261,14 @@ class YouthFeedPage extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      backgroundColor: isSelected
-                          ? _primaryBrown
-                          : Colors.white,
+                      selected: isSelected,
+                      onSelected: (_) {
+                        setState(() {
+                          _selectedCategory = category;
+                        });
+                      },
+                      selectedColor: _primaryBrown,
+                      backgroundColor: Colors.white,
                       side: BorderSide(
                         color: isSelected
                             ? _primaryBrown
@@ -183,20 +276,134 @@ class YouthFeedPage extends StatelessWidget {
                         width: 1.3,
                       ),
                       padding: const EdgeInsets.symmetric(horizontal: 8),
+                      showCheckmark: false,
                     ),
                   );
                 },
               ),
             ),
-            const SizedBox(height: 20),
-            ..._stories.map(
-              (story) => Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: _StoryCard(story: story),
-              ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: YouthFeedPage._filterTags.map((tag) {
+                final bool isSelected = _selectedTags.contains(tag);
+
+                return Semantics(
+                  label: '$tag filter tag',
+                  button: true,
+                  selected: isSelected,
+                  child: FilterChip(
+                    label: Text(
+                      tag,
+                      style: TextStyle(
+                        color: isSelected ? Colors.white : _darkBrown,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    selected: isSelected,
+                    onSelected: (selected) {
+                      setState(() {
+                        if (selected) {
+                          _selectedTags.add(tag);
+                        } else {
+                          _selectedTags.remove(tag);
+                        }
+                      });
+                    },
+                    selectedColor: _primaryBrown,
+                    backgroundColor: Colors.white,
+                    side: BorderSide(
+                      color: isSelected
+                          ? _primaryBrown
+                          : _primaryBrown.withValues(alpha: 0.3),
+                      width: 1.2,
+                    ),
+                    checkmarkColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                  ),
+                );
+              }).toList(),
             ),
+            if (_hasActiveFilters) ...[
+              const SizedBox(height: 14),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: _clearFilters,
+                  icon: const Icon(Icons.close, size: 18),
+                  label: const Text('Clear filters'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: _primaryBrown,
+                    textStyle: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 20),
+            if (filteredStories.isEmpty)
+              const _EmptyFeedState()
+            else
+              ...filteredStories.map(
+                (story) => Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: _StoryCard(story: story),
+                ),
+              ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _EmptyFeedState extends StatelessWidget {
+  const _EmptyFeedState();
+
+  static const Color _primaryBrown = Color(0xFF6B4226);
+  static const Color _darkBrown = Color(0xFF4A2C1A);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: _primaryBrown.withValues(alpha: 0.15),
+          width: 1,
+        ),
+      ),
+      child: const Column(
+        children: [
+          Icon(Icons.search_off, color: _primaryBrown, size: 34),
+          SizedBox(height: 10),
+          Text(
+            'No stories match these filters.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.bold,
+              color: _darkBrown,
+            ),
+          ),
+          SizedBox(height: 6),
+          Text(
+            'Try a different search, category, or tag combination.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 15,
+              height: 1.4,
+              color: Colors.black87,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -362,4 +569,11 @@ class _CulturalStory {
   final String contributor;
   final String description;
   final IconData icon;
+
+  bool matchesTag(String tag) {
+    final String normalizedTag = tag.toLowerCase();
+
+    return language.toLowerCase() == normalizedTag ||
+        category.toLowerCase() == normalizedTag;
+  }
 }
