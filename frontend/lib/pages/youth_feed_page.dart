@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../models/cultural_story.dart';
+import 'youth_content_detail_page.dart';
+
 class YouthFeedPage extends StatefulWidget {
   const YouthFeedPage({super.key});
 
@@ -30,8 +33,8 @@ class YouthFeedPage extends StatefulWidget {
     'History',
   ];
 
-  static const List<_CulturalStory> _stories = [
-    _CulturalStory(
+  static const List<CulturalStory> _stories = [
+    CulturalStory(
       title: 'The Moonlit Banyan Tale',
       category: 'Folklore',
       language: 'Tamil',
@@ -40,8 +43,9 @@ class YouthFeedPage extends StatefulWidget {
       description:
           'A village story about kindness, courage, and the old banyan tree that gathered families at dusk.',
       icon: Icons.auto_stories,
+      mediaType: 'image',
     ),
-    _CulturalStory(
+    CulturalStory(
       title: 'Kiribath for New Beginnings',
       category: 'Traditional Food',
       language: 'Sinhala',
@@ -51,7 +55,7 @@ class YouthFeedPage extends StatefulWidget {
           'A short memory about preparing milk rice for celebrations and sharing the first plate with neighbors.',
       icon: Icons.rice_bowl,
     ),
-    _CulturalStory(
+    CulturalStory(
       title: 'Lanterns of Vesak Night',
       category: 'Festivals',
       language: 'English',
@@ -60,8 +64,9 @@ class YouthFeedPage extends StatefulWidget {
       description:
           'How families made paper lanterns together and lit the street with color during Vesak.',
       icon: Icons.celebration,
+      mediaType: 'video',
     ),
-    _CulturalStory(
+    CulturalStory(
       title: 'Drums Across the Courtyard',
       category: 'Music',
       language: 'Tamil',
@@ -70,8 +75,9 @@ class YouthFeedPage extends StatefulWidget {
       description:
           'A remembered rhythm from temple gatherings, taught by listening before learning the steps.',
       icon: Icons.music_note,
+      mediaType: 'audio',
     ),
-    _CulturalStory(
+    CulturalStory(
       title: 'Hands That Weave Palmyrah',
       category: 'Crafts',
       language: 'Tamil',
@@ -81,7 +87,7 @@ class YouthFeedPage extends StatefulWidget {
           'A gentle introduction to palmyrah weaving and the patience behind everyday handmade items.',
       icon: Icons.handyman,
     ),
-    _CulturalStory(
+    CulturalStory(
       title: 'A Fort by the Sea',
       category: 'History',
       language: 'English',
@@ -114,7 +120,7 @@ class _YouthFeedPageState extends State<YouthFeedPage> {
       _selectedCategory != 'All' ||
       _selectedTags.isNotEmpty;
 
-  List<_CulturalStory> get _filteredStories {
+  List<CulturalStory> get _filteredStories {
     final String query = _searchQuery.trim().toLowerCase();
 
     return YouthFeedPage._stories.where((story) {
@@ -156,7 +162,7 @@ class _YouthFeedPageState extends State<YouthFeedPage> {
 
   @override
   Widget build(BuildContext context) {
-    final List<_CulturalStory> filteredStories = _filteredStories;
+    final List<CulturalStory> filteredStories = _filteredStories;
 
     return Scaffold(
       backgroundColor: _bgColor,
@@ -225,10 +231,7 @@ class _YouthFeedPageState extends State<YouthFeedPage> {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(
-                      color: _primaryBrown,
-                      width: 1.5,
-                    ),
+                    borderSide: BorderSide(color: _primaryBrown, width: 1.5),
                   ),
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 16,
@@ -351,11 +354,22 @@ class _YouthFeedPageState extends State<YouthFeedPage> {
               ...filteredStories.map(
                 (story) => Padding(
                   padding: const EdgeInsets.only(bottom: 16),
-                  child: _StoryCard(story: story),
+                  child: _StoryCard(
+                    story: story,
+                    onTap: () => _openStoryDetail(story),
+                  ),
                 ),
               ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _openStoryDetail(CulturalStory story) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => YouthContentDetailPage(story: story),
       ),
     );
   }
@@ -397,11 +411,7 @@ class _EmptyFeedState extends StatelessWidget {
           Text(
             'Try a different search, category, or tag combination.',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 15,
-              height: 1.4,
-              color: Colors.black87,
-            ),
+            style: TextStyle(fontSize: 15, height: 1.4, color: Colors.black87),
           ),
         ],
       ),
@@ -410,9 +420,10 @@ class _EmptyFeedState extends StatelessWidget {
 }
 
 class _StoryCard extends StatelessWidget {
-  const _StoryCard({required this.story});
+  const _StoryCard({required this.story, required this.onTap});
 
-  final _CulturalStory story;
+  final CulturalStory story;
+  final VoidCallback onTap;
 
   static const Color _primaryBrown = Color(0xFF6B4226);
   static const Color _darkBrown = Color(0xFF4A2C1A);
@@ -420,103 +431,111 @@ class _StoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      color: Colors.white,
-      elevation: 1.5,
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: BorderSide(
-          color: _primaryBrown.withValues(alpha: 0.15),
-          width: 1,
+    return Semantics(
+      label: 'Open ${story.title}',
+      button: true,
+      child: Card(
+        color: Colors.white,
+        elevation: 1.5,
+        margin: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(
+            color: _primaryBrown.withValues(alpha: 0.15),
+            width: 1,
+          ),
         ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Semantics(
-                  label: '${story.category} media placeholder',
-                  child: Container(
-                    width: 88,
-                    height: 88,
-                    decoration: BoxDecoration(
-                      color: _softGold.withValues(alpha: 0.28),
-                      borderRadius: BorderRadius.circular(10),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Semantics(
+                      label: '${story.category} media placeholder',
+                      child: Container(
+                        width: 88,
+                        height: 88,
+                        decoration: BoxDecoration(
+                          color: _softGold.withValues(alpha: 0.28),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(story.icon, color: _primaryBrown, size: 38),
+                      ),
                     ),
-                    child: Icon(story.icon, color: _primaryBrown, size: 38),
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: Text(
-                              story.title,
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: _darkBrown,
-                                height: 1.2,
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  story.title,
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: _darkBrown,
+                                    height: 1.2,
+                                  ),
+                                ),
                               ),
-                            ),
+                              Semantics(
+                                label: 'Bookmark ${story.title} placeholder',
+                                button: true,
+                                child: IconButton(
+                                  visualDensity: VisualDensity.compact,
+                                  tooltip: 'Bookmark',
+                                  icon: const Icon(Icons.bookmark_border),
+                                  color: _primaryBrown,
+                                  onPressed: () {},
+                                ),
+                              ),
+                            ],
                           ),
-                          Semantics(
-                            label: 'Bookmark ${story.title} placeholder',
-                            button: true,
-                            child: IconButton(
-                              visualDensity: VisualDensity.compact,
-                              tooltip: 'Bookmark',
-                              icon: const Icon(Icons.bookmark_border),
-                              color: _primaryBrown,
-                              onPressed: () {},
-                            ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              _MetaPill(text: story.category),
+                              _MetaPill(text: story.language),
+                              _MetaPill(text: story.region),
+                            ],
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _MetaPill(text: story.category),
-                          _MetaPill(text: story.language),
-                          _MetaPill(text: story.region),
-                        ],
-                      ),
-                    ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'By ${story.contributor}',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: _primaryBrown,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  story.description,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    height: 1.4,
+                    color: Colors.black87,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Text(
-              'By ${story.contributor}',
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: _primaryBrown,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              story.description,
-              style: const TextStyle(
-                fontSize: 15,
-                height: 1.4,
-                color: Colors.black87,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -548,32 +567,5 @@ class _MetaPill extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-class _CulturalStory {
-  const _CulturalStory({
-    required this.title,
-    required this.category,
-    required this.language,
-    required this.region,
-    required this.contributor,
-    required this.description,
-    required this.icon,
-  });
-
-  final String title;
-  final String category;
-  final String language;
-  final String region;
-  final String contributor;
-  final String description;
-  final IconData icon;
-
-  bool matchesTag(String tag) {
-    final String normalizedTag = tag.toLowerCase();
-
-    return language.toLowerCase() == normalizedTag ||
-        category.toLowerCase() == normalizedTag;
   }
 }
