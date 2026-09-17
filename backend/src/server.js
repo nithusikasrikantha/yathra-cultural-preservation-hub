@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const connectDB = require('./config/db');
+const storyRoutes = require('./routes/storyRoutes');
 
 dotenv.config();
 
@@ -13,6 +14,9 @@ app.use(express.json());
 
 // Connect Database
 connectDB();
+
+// Routes
+app.use('/api/stories', storyRoutes);
 
 // Test Endpoint
 app.get('/', (req, res) => {
