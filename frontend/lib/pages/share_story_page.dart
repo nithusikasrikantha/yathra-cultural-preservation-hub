@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
@@ -52,6 +55,9 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
   final SpeechToText _speechToText = SpeechToText();
   bool _isConvertingToText = false;
 
+  // Publishing state
+  bool _isPublishing = false;
+
   RecordingState _recordingState = RecordingState.notRecorded;
   String? _recordedFilePath;
   int _recordingSeconds = 0;
@@ -61,6 +67,20 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
   static const Color _bgColor = Color(0xFFF8F3EA);
   static const Color _primaryBrown = Color(0xFF6B4226);
   static const Color _darkBrown = Color(0xFF4A2C1A);
+
+  // Backend Base URL Configuration:
+  // - Android Emulator: http://10.0.2.2:5000
+  // - Windows / Web / iOS Simulator: http://localhost:5000
+  // - Physical Device: Change to computer's local Wi-Fi IP address (e.g. http://192.168.1.100:5000)
+  String get _baseUrl {
+    if (kIsWeb) {
+      return 'http://localhost:5000';
+    } else if (Platform.isAndroid) {
+      return 'http://10.0.2.2:5000';
+    } else {
+      return 'http://localhost:5000';
+    }
+  }
 
   @override
   void initState() {
@@ -330,6 +350,79 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     }
   }
 
+  // 7. Backend Story Publishing (YTH-26)
+  Future<void> _publishStory() async {
+    final String title = _titleController.text.trim();
+    final String? category = _selectedCategory;
+    final String? language = _selectedLanguage;
+    final String storyText = _storyController.text.trim();
+
+    // Form Validation
+    if (title.isEmpty) {
+      _showSnackBar('Please enter a title for your story.');
+      return;
+    }
+    if (category == null || category.isEmpty) {
+      _showSnackBar('Please select a category for your story.');
+      return;
+    }
+    if (language == null || language.isEmpty) {
+      _showSnackBar('Please select a language.');
+      return;
+    }
+    if (storyText.isEmpty) {
+      _showSnackBar('Please write or record your story before publishing.');
+      return;
+    }
+
+    setState(() {
+      _isPublishing = true;
+    });
+
+    try {
+      final Uri url = Uri.parse('$_baseUrl/api/stories');
+      final Map<String, dynamic> body = {
+        'title': title,
+        'category': category,
+        'language': language,
+        'storyText': storyText,
+        'audioPath': _recordedFilePath,
+      };
+
+      final http.Response response = await http
+          .post(
+            url,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 201) {
+        _showSnackBar('Story published successfully!');
+      } else {
+        try {
+          final Map<String, dynamic> responseData = jsonDecode(response.body);
+          final String errorMsg = responseData['message'] ?? 'Failed to publish story.';
+          _showSnackBar(errorMsg);
+        } catch (_) {
+          _showSnackBar('Failed to publish story. Server returned error.');
+        }
+      }
+    } on TimeoutException {
+      _showSnackBar('Connection timed out. Please check your network and try again.');
+    } on SocketException {
+      _showSnackBar('Unable to connect to backend server. Please verify the server is running.');
+    } catch (e) {
+      _showSnackBar('Failed to publish story. Please try again.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPublishing = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -473,16 +566,36 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
-                      onPressed: () {
-                        _showSnackBar('Continue to the next step');
-                      },
-                      child: const Text(
-                        'Continue',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                      onPressed: _isPublishing ? null : _publishStory,
+                      child: _isPublishing
+                          ? Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: const [
+                                SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                SizedBox(width: 12),
+                                Text(
+                                  'Publishing...',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            )
+                          : const Text(
+                              'Continue',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                     ),
                   ),
                 ],
