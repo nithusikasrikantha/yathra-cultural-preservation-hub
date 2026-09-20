@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -55,6 +56,10 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
   final SpeechToText _speechToText = SpeechToText();
   bool _isConvertingToText = false;
 
+  // Text to speech engine (YTH-35)
+  final FlutterTts _flutterTts = FlutterTts();
+  bool _isSpeaking = false;
+
   // Publishing state
   bool _isPublishing = false;
 
@@ -86,6 +91,7 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
   void initState() {
     super.initState();
     _initAudioPlayer();
+    _initTts();
   }
 
   void _initAudioPlayer() {
@@ -98,8 +104,44 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     });
   }
 
+  void _initTts() {
+    _flutterTts.setStartHandler(() {
+      if (mounted) {
+        setState(() {
+          _isSpeaking = true;
+        });
+      }
+    });
+
+    _flutterTts.setCompletionHandler(() {
+      if (mounted) {
+        setState(() {
+          _isSpeaking = false;
+        });
+      }
+    });
+
+    _flutterTts.setCancelHandler(() {
+      if (mounted) {
+        setState(() {
+          _isSpeaking = false;
+        });
+      }
+    });
+
+    _flutterTts.setErrorHandler((msg) {
+      if (mounted) {
+        setState(() {
+          _isSpeaking = false;
+        });
+        _showSnackBar('Text-to-speech error: $msg');
+      }
+    });
+  }
+
   @override
   void dispose() {
+    _flutterTts.stop();
     _timer?.cancel();
     _playerStateSubscription?.cancel();
     _audioRecorder.dispose();
@@ -143,9 +185,25 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     }
   }
 
+  String _getTtsLanguageCode() {
+    switch (_selectedLanguage) {
+      case 'Tamil':
+        return 'ta-LK';
+      case 'Sinhala':
+        return 'si-LK';
+      case 'English':
+      default:
+        return 'en-US';
+    }
+  }
+
   // 1. Start Recording
   Future<void> _startRecording() async {
     try {
+      if (_isSpeaking) {
+        await _stopSpeaking();
+      }
+
       if (!await _audioRecorder.hasPermission()) {
         _showSnackBar('Microphone permission is required to record your voice.');
         return;
@@ -213,6 +271,10 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     }
 
     try {
+      if (_isSpeaking) {
+        await _stopSpeaking();
+      }
+
       await _audioPlayer.play(DeviceFileSource(_recordedFilePath!));
       setState(() {
         _recordingState = RecordingState.playing;
@@ -237,6 +299,10 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
   // 5. Re-record
   Future<void> _reRecord() async {
     try {
+      if (_isSpeaking) {
+        await _stopSpeaking();
+      }
+
       if (_recordingState == RecordingState.playing) {
         await _audioPlayer.stop();
       } else if (_recordingState == RecordingState.recording) {
@@ -263,6 +329,10 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     if (_recordedFilePath == null || !File(_recordedFilePath!).existsSync()) {
       _showSnackBar('No recorded audio file found to convert.');
       return;
+    }
+
+    if (_isSpeaking) {
+      await _stopSpeaking();
     }
 
     setState(() {
@@ -350,7 +420,61 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     }
   }
 
-  // 7. Backend Story Publishing (YTH-26)
+  // 7. Text-to-Speech Voice Narration (YTH-35)
+  Future<void> _speakStory() async {
+    final String text = _storyController.text.trim();
+
+    if (text.isEmpty) {
+      _showSnackBar('Please write or record a story first before listening.');
+      return;
+    }
+
+    if (_isSpeaking) {
+      await _stopSpeaking();
+      return;
+    }
+
+    // Stop audio playback if playing
+    if (_recordingState == RecordingState.playing) {
+      await _stopPlayback();
+    }
+
+    try {
+      final String langCode = _getTtsLanguageCode();
+      await _flutterTts.setLanguage(langCode);
+      await _flutterTts.setSpeechRate(0.45);
+      await _flutterTts.setPitch(1.0);
+
+      final dynamic result = await _flutterTts.speak(text);
+      if (result == 1) {
+        setState(() {
+          _isSpeaking = true;
+        });
+      } else {
+        setState(() {
+          _isSpeaking = true;
+        });
+      }
+    } catch (e) {
+      _showSnackBar('Failed to play voice narration.');
+      setState(() {
+        _isSpeaking = false;
+      });
+    }
+  }
+
+  Future<void> _stopSpeaking() async {
+    try {
+      await _flutterTts.stop();
+    } catch (_) {}
+    if (mounted) {
+      setState(() {
+        _isSpeaking = false;
+      });
+    }
+  }
+
+  // 8. Backend Story Publishing (YTH-26)
   Future<void> _publishStory() async {
     final String title = _titleController.text.trim();
     final String? category = _selectedCategory;
@@ -373,6 +497,10 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     if (storyText.isEmpty) {
       _showSnackBar('Please write or record your story before publishing.');
       return;
+    }
+
+    if (_isSpeaking) {
+      await _stopSpeaking();
     }
 
     setState(() {
@@ -512,7 +640,7 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
               ),
               const SizedBox(height: 24),
 
-              // 4. Your Story Multiline Field
+              // 4. Your Story Multiline Field & TTS Action
               _buildSectionLabel('Your Story'),
               const SizedBox(height: 8),
               TextField(
@@ -521,6 +649,8 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
                 style: const TextStyle(fontSize: 18, color: _darkBrown),
                 decoration: _buildInputDecoration('Write your story here...'),
               ),
+              const SizedBox(height: 12),
+              _buildTtsButton(),
               const SizedBox(height: 28),
 
               // 5. Voice Story Section (Interactive Voice Recording & Speech-to-Text)
@@ -604,6 +734,53 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildTtsButton() {
+    if (_isSpeaking) {
+      return SizedBox(
+        width: double.infinity,
+        child: ElevatedButton.icon(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.red.shade700,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+          icon: const Icon(Icons.stop_circle, size: 24),
+          label: const Text(
+            'Stop Reading',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+          onPressed: _stopSpeaking,
+        ),
+      );
+    }
+
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          side: const BorderSide(color: _primaryBrown, width: 1.5),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+        icon: const Icon(Icons.volume_up, color: _primaryBrown, size: 24),
+        label: Text(
+          'Listen to Story (${_selectedLanguage ?? 'Tamil'})',
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: _primaryBrown,
+          ),
+        ),
+        onPressed: _speakStory,
       ),
     );
   }
