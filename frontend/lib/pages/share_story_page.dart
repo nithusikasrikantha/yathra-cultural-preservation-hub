@@ -18,7 +18,9 @@ enum RecordingState {
 }
 
 class ShareStoryPage extends StatefulWidget {
-  const ShareStoryPage({super.key});
+  final Map<String, dynamic>? storyToEdit;
+
+  const ShareStoryPage({super.key, this.storyToEdit});
 
   @override
   State<ShareStoryPage> createState() => _ShareStoryPageState();
@@ -60,8 +62,9 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
   final FlutterTts _flutterTts = FlutterTts();
   bool _isSpeaking = false;
 
-  // Publishing state
+  // Publishing / Updating / Deleting state
   bool _isPublishing = false;
+  bool _isDeleting = false;
 
   RecordingState _recordingState = RecordingState.notRecorded;
   String? _recordedFilePath;
@@ -72,6 +75,9 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
   static const Color _bgColor = Color(0xFFF8F3EA);
   static const Color _primaryBrown = Color(0xFF6B4226);
   static const Color _darkBrown = Color(0xFF4A2C1A);
+
+  bool get _isEditing => widget.storyToEdit != null && widget.storyToEdit!['_id'] != null;
+  String? get _editingStoryId => widget.storyToEdit != null ? widget.storyToEdit!['_id'] : null;
 
   // Backend Base URL Configuration:
   // - Android Emulator: http://10.0.2.2:5000
@@ -92,6 +98,25 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     super.initState();
     _initAudioPlayer();
     _initTts();
+    _populateEditData();
+  }
+
+  void _populateEditData() {
+    if (_isEditing) {
+      final story = widget.storyToEdit!;
+      _titleController.text = story['title'] ?? '';
+      _storyController.text = story['storyText'] ?? '';
+      if (story['category'] != null && _categories.contains(story['category'])) {
+        _selectedCategory = story['category'];
+      }
+      if (story['language'] != null && _languages.contains(story['language'])) {
+        _selectedLanguage = story['language'];
+      }
+      if (story['audioPath'] != null && story['audioPath'].toString().isNotEmpty) {
+        _recordedFilePath = story['audioPath'];
+        _recordingState = RecordingState.recorded;
+      }
+    }
   }
 
   void _initAudioPlayer() {
@@ -474,8 +499,8 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     }
   }
 
-  // 8. Backend Story Publishing (YTH-26)
-  Future<void> _publishStory() async {
+  // 8. Backend Story Publishing & Updating (YTH-26 & YTH-36)
+  Future<void> _publishOrUpdateStory() async {
     final String title = _titleController.text.trim();
     final String? category = _selectedCategory;
     final String? language = _selectedLanguage;
@@ -495,7 +520,7 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
       return;
     }
     if (storyText.isEmpty) {
-      _showSnackBar('Please write or record your story before publishing.');
+      _showSnackBar('Please write or record your story before saving.');
       return;
     }
 
@@ -503,12 +528,13 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
       await _stopSpeaking();
     }
 
+    final navigator = Navigator.of(context);
+
     setState(() {
       _isPublishing = true;
     });
 
     try {
-      final Uri url = Uri.parse('$_baseUrl/api/stories');
       final Map<String, dynamic> body = {
         'title': title,
         'category': category,
@@ -517,23 +543,48 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
         'audioPath': _recordedFilePath,
       };
 
-      final http.Response response = await http
-          .post(
-            url,
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode(body),
-          )
-          .timeout(const Duration(seconds: 10));
+      http.Response response;
 
-      if (response.statusCode == 201) {
-        _showSnackBar('Story published successfully!');
+      if (_isEditing) {
+        // Edit Mode: PUT /api/stories/:id
+        final Uri url = Uri.parse('$_baseUrl/api/stories/$_editingStoryId');
+        response = await http
+            .put(
+              url,
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode(body),
+            )
+            .timeout(const Duration(seconds: 10));
+      } else {
+        // New Story Mode: POST /api/stories
+        final Uri url = Uri.parse('$_baseUrl/api/stories');
+        response = await http
+            .post(
+              url,
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode(body),
+            )
+            .timeout(const Duration(seconds: 10));
+      }
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final String successMessage =
+            _isEditing ? 'Story updated successfully!' : 'Story published successfully!';
+        _showSnackBar(successMessage);
+        if (_isEditing) {
+          Future.delayed(const Duration(seconds: 1), () {
+            if (mounted && navigator.canPop()) {
+              navigator.pop(true);
+            }
+          });
+        }
       } else {
         try {
           final Map<String, dynamic> responseData = jsonDecode(response.body);
-          final String errorMsg = responseData['message'] ?? 'Failed to publish story.';
+          final String errorMsg = responseData['message'] ?? 'Failed to save story.';
           _showSnackBar(errorMsg);
         } catch (_) {
-          _showSnackBar('Failed to publish story. Server returned error.');
+          _showSnackBar('Failed to save story. Server returned error.');
         }
       }
     } on TimeoutException {
@@ -541,11 +592,122 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     } on SocketException {
       _showSnackBar('Unable to connect to backend server. Please verify the server is running.');
     } catch (e) {
-      _showSnackBar('Failed to publish story. Please try again.');
+      _showSnackBar('Failed to save story. Please try again.');
     } finally {
       if (mounted) {
         setState(() {
           _isPublishing = false;
+        });
+      }
+    }
+  }
+
+  // 9. Soft Delete Story Action (YTH-36)
+  Future<void> _confirmAndDeleteStory() async {
+    if (!_isEditing) return;
+
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          backgroundColor: _bgColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          title: const Text(
+            'Delete Story?',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: _darkBrown,
+            ),
+          ),
+          content: const Text(
+            'Are you sure you want to delete this story? It will be removed from your visible contributions.',
+            style: TextStyle(fontSize: 16, color: _darkBrown, height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(fontSize: 16, color: Colors.grey, fontWeight: FontWeight.bold),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red.shade700,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text(
+                'Delete',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    if (_isSpeaking) {
+      await _stopSpeaking();
+    }
+
+    if (!mounted) return;
+    final navigator = Navigator.of(context);
+
+    setState(() {
+      _isDeleting = true;
+    });
+
+    try {
+      final Uri url = Uri.parse('$_baseUrl/api/stories/$_editingStoryId');
+      final http.Response response = await http
+          .delete(
+            url,
+            headers: {'Content-Type': 'application/json'},
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        _showSnackBar('Story deleted successfully.');
+        if (mounted && navigator.canPop()) {
+          Future.delayed(const Duration(seconds: 1), () {
+            if (mounted && navigator.canPop()) {
+              navigator.pop(true);
+            }
+          });
+        } else {
+          // Reset form fields
+          _titleController.clear();
+          _storyController.clear();
+          setState(() {
+            _recordedFilePath = null;
+            _recordingSeconds = 0;
+            _recordingState = RecordingState.notRecorded;
+          });
+        }
+      } else {
+        try {
+          final Map<String, dynamic> responseData = jsonDecode(response.body);
+          final String errorMsg = responseData['message'] ?? 'Failed to delete story.';
+          _showSnackBar(errorMsg);
+        } catch (_) {
+          _showSnackBar('Failed to delete story. Server returned error.');
+        }
+      }
+    } on TimeoutException {
+      _showSnackBar('Connection timed out. Please check your network and try again.');
+    } on SocketException {
+      _showSnackBar('Unable to connect to backend server. Please verify the server is running.');
+    } catch (e) {
+      _showSnackBar('Failed to delete story. Please try again.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDeleting = false;
         });
       }
     }
@@ -559,9 +721,9 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
         backgroundColor: _primaryBrown,
         foregroundColor: Colors.white,
         centerTitle: true,
-        title: const Text(
-          'Share Your Story',
-          style: TextStyle(
+        title: Text(
+          _isEditing ? 'Edit Story' : 'Share Your Story',
+          style: const TextStyle(
             fontSize: 22,
             fontWeight: FontWeight.bold,
             color: Colors.white,
@@ -575,9 +737,11 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Header description
-              const Text(
-                'Preserve cultural heritage by sharing your memories and wisdom.',
-                style: TextStyle(
+              Text(
+                _isEditing
+                    ? 'Update your story or remove it from your published contributions.'
+                    : 'Preserve cultural heritage by sharing your memories and wisdom.',
+                style: const TextStyle(
                   fontSize: 16,
                   color: _darkBrown,
                   fontWeight: FontWeight.w500,
@@ -659,77 +823,140 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
               _buildVoiceRecordingCard(),
               const SizedBox(height: 32),
 
-              // 6. Bottom Action Buttons
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        side: const BorderSide(color: _primaryBrown, width: 2),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
+              // 6. Bottom Action Buttons (Publish/Update & Delete/Draft)
+              if (_isEditing) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          side: BorderSide(color: Colors.red.shade700, width: 2),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
                         ),
+                        icon: _isDeleting
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.red),
+                              )
+                            : Icon(Icons.delete_outline, color: Colors.red.shade700, size: 24),
+                        label: Text(
+                          _isDeleting ? 'Deleting...' : 'Delete Story',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red.shade700,
+                          ),
+                        ),
+                        onPressed: (_isDeleting || _isPublishing) ? null : _confirmAndDeleteStory,
                       ),
-                      onPressed: () {
-                        _showSnackBar('Story saved as draft');
-                      },
-                      child: const Text(
-                        'Save Draft',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: _primaryBrown,
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _primaryBrown,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        icon: _isPublishing
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Icon(Icons.check, size: 24),
+                        label: Text(
+                          _isPublishing ? 'Updating...' : 'Update Story',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        onPressed: (_isPublishing || _isDeleting) ? null : _publishOrUpdateStory,
+                      ),
+                    ),
+                  ],
+                ),
+              ] else ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          side: const BorderSide(color: _primaryBrown, width: 2),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        onPressed: () {
+                          _showSnackBar('Story saved as draft');
+                        },
+                        child: const Text(
+                          'Save Draft',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: _primaryBrown,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _primaryBrown,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        elevation: 2,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _primaryBrown,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
                         ),
-                      ),
-                      onPressed: _isPublishing ? null : _publishStory,
-                      child: _isPublishing
-                          ? Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: const [
-                                SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
+                        onPressed: _isPublishing ? null : _publishOrUpdateStory,
+                        child: _isPublishing
+                            ? Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: const [
+                                  SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
                                   ),
-                                ),
-                                SizedBox(width: 12),
-                                Text(
-                                  'Publishing...',
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
+                                  SizedBox(width: 12),
+                                  Text(
+                                    'Publishing...',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
+                                ],
+                              )
+                            : const Text(
+                                'Continue',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
                                 ),
-                              ],
-                            )
-                          : const Text(
-                              'Continue',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
                               ),
-                            ),
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 20),
             ],
           ),
