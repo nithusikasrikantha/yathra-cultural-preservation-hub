@@ -26,6 +26,10 @@ const storySchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    tags: {
+      type: [String],
+      default: [],
+    },
     isDeleted: {
       type: Boolean,
       default: false,
