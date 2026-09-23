@@ -6,12 +6,42 @@ const Story = require('../models/Story');
 // Helper to validate MongoDB ObjectId
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const normalizeTags = (tags) => {
+  if (tags === undefined) {
+    return { value: undefined };
+  }
+
+  if (!Array.isArray(tags)) {
+    return { error: 'Tags must be an array.' };
+  }
+
+  const normalizedTags = [];
+  const seenTags = new Set();
+
+  for (const tag of tags) {
+    if (typeof tag !== 'string' || !tag.trim()) {
+      return { error: 'Every tag must be a non-empty string.' };
+    }
+
+    const trimmedTag = tag.trim();
+    const normalizedKey = trimmedTag.toLowerCase();
+    if (!seenTags.has(normalizedKey)) {
+      seenTags.add(normalizedKey);
+      normalizedTags.push(trimmedTag);
+    }
+  }
+
+  return { value: normalizedTags };
+};
+
 // @route   POST /api/stories
 // @desc    Publish a new cultural story
 // @access  Public
 router.post('/', async (req, res) => {
   try {
-    const { title, category, language, storyText, audioPath } = req.body;
+    const { title, category, language, storyText, audioPath, tags } = req.body;
 
     // Field validation
     if (!title || !title.trim()) {
@@ -27,12 +57,18 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ message: 'Story text is required.' });
     }
 
+    const normalizedTags = normalizeTags(tags);
+    if (normalizedTags.error) {
+      return res.status(400).json({ message: normalizedTags.error });
+    }
+
     const newStory = new Story({
       title: title.trim(),
       category: category.trim(),
       language: language.trim(),
       storyText: storyText.trim(),
       audioPath: audioPath || null,
+      tags: normalizedTags.value,
       isDeleted: false,
     });
 
@@ -79,6 +115,42 @@ router.get('/', async (req, res) => {
     }
 
     const filter = { isDeleted: false };
+    const { search, category, tags } = req.query;
+
+    if (search !== undefined) {
+      if (typeof search !== 'string' || !search.trim()) {
+        return res.status(400).json({ message: 'Search must be a non-empty string.' });
+      }
+
+      const searchRegex = new RegExp(escapeRegex(search.trim()), 'i');
+      filter.$or = [{ title: searchRegex }, { storyText: searchRegex }];
+    }
+
+    if (category !== undefined) {
+      if (typeof category !== 'string' || !category.trim()) {
+        return res.status(400).json({ message: 'Category must be a non-empty string.' });
+      }
+
+      filter.category = new RegExp(`^${escapeRegex(category.trim())}$`, 'i');
+    }
+
+    if (tags !== undefined) {
+      if (typeof tags !== 'string' || !tags.trim()) {
+        return res.status(400).json({ message: 'Tags must be a comma-separated string.' });
+      }
+
+      const normalizedTags = normalizeTags(tags.split(','));
+      if (normalizedTags.error) {
+        return res.status(400).json({ message: normalizedTags.error });
+      }
+
+      filter.tags = {
+        $all: normalizedTags.value.map(
+          (tag) => new RegExp(`^${escapeRegex(tag)}$`, 'i')
+        ),
+      };
+    }
+
     const [items, totalItems] = await Promise.all([
       Story.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
       Story.countDocuments(filter),
@@ -142,7 +214,7 @@ router.put('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Story not found or has been deleted.' });
     }
 
-    const { title, category, language, storyText, audioPath } = req.body;
+    const { title, category, language, storyText, audioPath, tags } = req.body;
 
     // Field validation
     if (title !== undefined) {
@@ -175,6 +247,14 @@ router.put('/:id', async (req, res) => {
 
     if (audioPath !== undefined) {
       story.audioPath = audioPath;
+    }
+
+    if (tags !== undefined) {
+      const normalizedTags = normalizeTags(tags);
+      if (normalizedTags.error) {
+        return res.status(400).json({ message: normalizedTags.error });
+      }
+      story.tags = normalizedTags.value;
     }
 
     const updatedStory = await story.save();
