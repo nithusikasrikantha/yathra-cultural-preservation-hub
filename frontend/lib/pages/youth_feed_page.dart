@@ -15,9 +15,31 @@ class _YouthFeedPageState extends State<YouthFeedPage> {
   static const Color _primaryBrown = Color(0xFF6B4226);
   static const Color _darkBrown = Color(0xFF4A2C1A);
   static const int _pageSize = 10;
+  static const List<String> _categories = [
+    'Traditional Story',
+    'Recipe',
+    'Song',
+    'Proverb',
+    'Traditional Practice',
+    'Local History',
+    'Language',
+    'Other',
+  ];
+  static const List<String> _tagOptions = [
+    'Folklore',
+    'Traditional Food',
+    'Music',
+    'Dance',
+    'Festivals',
+    'Language',
+    'History',
+    'Crafts',
+  ];
 
   final StoryService _storyService = const StoryService();
   final List<Story> _stories = [];
+  final TextEditingController _searchController = TextEditingController();
+  final Set<String> _selectedTags = {};
 
   bool _isInitialLoading = true;
   bool _isLoadingMore = false;
@@ -25,8 +47,21 @@ class _YouthFeedPageState extends State<YouthFeedPage> {
   String? _loadMoreError;
   int _currentPage = 0;
   int _totalPages = 0;
+  int _requestGeneration = 0;
+  String? _selectedCategory;
+  String? _activeSearch;
+  String? _activeCategory;
+  List<String> _activeTags = const [];
 
   bool get _hasMorePages => _currentPage < _totalPages;
+  bool get _hasActiveFilters =>
+      _activeSearch != null ||
+      _activeCategory != null ||
+      _activeTags.isNotEmpty;
+  bool get _hasEditableFilters =>
+      _searchController.text.trim().isNotEmpty ||
+      _selectedCategory != null ||
+      _selectedTags.isNotEmpty;
 
   @override
   void initState() {
@@ -34,16 +69,37 @@ class _YouthFeedPageState extends State<YouthFeedPage> {
     _loadFirstPage();
   }
 
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadFirstPage() async {
+    final requestGeneration = ++_requestGeneration;
+    final search = _activeSearch;
+    final category = _activeCategory;
+    final tags = List<String>.of(_activeTags);
+
     setState(() {
       _isInitialLoading = true;
+      _isLoadingMore = false;
       _initialError = null;
       _loadMoreError = null;
+      _stories.clear();
+      _currentPage = 0;
+      _totalPages = 0;
     });
 
     try {
-      final page = await _storyService.fetchStories(page: 1, limit: _pageSize);
-      if (!mounted) return;
+      final page = await _storyService.fetchStories(
+        page: 1,
+        limit: _pageSize,
+        search: search,
+        category: category,
+        tags: tags,
+      );
+      if (!mounted || requestGeneration != _requestGeneration) return;
 
       setState(() {
         _stories
@@ -54,7 +110,7 @@ class _YouthFeedPageState extends State<YouthFeedPage> {
         _isInitialLoading = false;
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || requestGeneration != _requestGeneration) return;
 
       setState(() {
         _initialError = 'We could not load cultural stories. Please try again.';
@@ -66,6 +122,11 @@ class _YouthFeedPageState extends State<YouthFeedPage> {
   Future<void> _loadMoreStories() async {
     if (_isLoadingMore || !_hasMorePages) return;
 
+    final requestGeneration = _requestGeneration;
+    final search = _activeSearch;
+    final category = _activeCategory;
+    final tags = List<String>.of(_activeTags);
+
     setState(() {
       _isLoadingMore = true;
       _loadMoreError = null;
@@ -75,8 +136,11 @@ class _YouthFeedPageState extends State<YouthFeedPage> {
       final page = await _storyService.fetchStories(
         page: _currentPage + 1,
         limit: _pageSize,
+        search: search,
+        category: category,
+        tags: tags,
       );
-      if (!mounted) return;
+      if (!mounted || requestGeneration != _requestGeneration) return;
 
       setState(() {
         _stories.addAll(page.items);
@@ -85,13 +149,41 @@ class _YouthFeedPageState extends State<YouthFeedPage> {
         _isLoadingMore = false;
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || requestGeneration != _requestGeneration) return;
 
       setState(() {
         _loadMoreError = 'More stories could not be loaded. Please try again.';
         _isLoadingMore = false;
       });
     }
+  }
+
+  void _applyFilters() {
+    FocusScope.of(context).unfocus();
+    final search = _searchController.text.trim();
+
+    setState(() {
+      _activeSearch = search.isEmpty ? null : search;
+      _activeCategory = _selectedCategory;
+      _activeTags = List<String>.unmodifiable(_selectedTags);
+    });
+
+    _loadFirstPage();
+  }
+
+  void _clearFilters() {
+    FocusScope.of(context).unfocus();
+
+    setState(() {
+      _searchController.clear();
+      _selectedCategory = null;
+      _selectedTags.clear();
+      _activeSearch = null;
+      _activeCategory = null;
+      _activeTags = const [];
+    });
+
+    _loadFirstPage();
   }
 
   @override
@@ -119,67 +211,193 @@ class _YouthFeedPageState extends State<YouthFeedPage> {
       );
     }
 
-    if (_initialError != null) {
-      return _buildMessageState(
-        icon: Icons.cloud_off_outlined,
-        title: 'Unable to load stories',
-        message: _initialError!,
-        actionLabel: 'Retry',
-        onPressed: _loadFirstPage,
-      );
-    }
-
-    if (_stories.isEmpty) {
-      return _buildMessageState(
-        icon: Icons.auto_stories_outlined,
-        title: 'No stories yet',
-        message: 'Cultural stories will appear here when they are published.',
-        actionLabel: 'Refresh',
-        onPressed: _loadFirstPage,
-      );
-    }
-
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 760),
-        child: ListView.builder(
+        child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 20, 16, 28),
-          itemCount: _stories.length + 2,
-          itemBuilder: (context, index) {
-            if (index == 0) {
-              return const Padding(
-                padding: EdgeInsets.only(bottom: 18),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Discover cultural stories',
-                      style: TextStyle(
-                        color: _darkBrown,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(bottom: 18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Discover cultural stories',
+                    style: TextStyle(
+                      color: _darkBrown,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
                     ),
-                    SizedBox(height: 6),
-                    Text(
-                      'Explore traditions, memories, and knowledge shared by the community.',
-                      style: TextStyle(
-                        color: Colors.black54,
-                        fontSize: 16,
-                        height: 1.4,
-                      ),
+                  ),
+                  SizedBox(height: 6),
+                  Text(
+                    'Explore traditions, memories, and knowledge shared by the community.',
+                    style: TextStyle(
+                      color: Colors.black54,
+                      fontSize: 16,
+                      height: 1.4,
                     ),
-                  ],
+                  ),
+                ],
+              ),
+            ),
+            _buildFilterPanel(),
+            const SizedBox(height: 20),
+            if (_initialError != null)
+              _buildResultMessage(
+                icon: Icons.cloud_off_outlined,
+                title: 'Unable to load stories',
+                message: _initialError!,
+                actionLabel: 'Retry',
+                onPressed: _loadFirstPage,
+              )
+            else if (_stories.isEmpty)
+              _buildResultMessage(
+                icon: Icons.auto_stories_outlined,
+                title: _hasActiveFilters
+                    ? 'No matching stories'
+                    : 'No stories yet',
+                message: _hasActiveFilters
+                    ? 'Try changing or clearing your search and filters.'
+                    : 'Cultural stories will appear here when they are published.',
+                actionLabel: _hasActiveFilters ? 'Clear filters' : 'Refresh',
+                onPressed: _hasActiveFilters ? _clearFilters : _loadFirstPage,
+              )
+            else ...[
+              for (final story in _stories) _StoryCard(story: story),
+              _buildPaginationFooter(),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilterPanel() {
+    return Card(
+      color: Colors.white,
+      elevation: 1,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Find stories',
+              style: TextStyle(
+                color: _darkBrown,
+                fontSize: 19,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _searchController,
+              textInputAction: TextInputAction.search,
+              onChanged: (_) => setState(() {}),
+              onSubmitted: (_) => _applyFilters(),
+              decoration: InputDecoration(
+                labelText: 'Search stories',
+                hintText: 'Search by title or story text',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
                 ),
-              );
-            }
-
-            if (index <= _stories.length) {
-              return _StoryCard(story: _stories[index - 1]);
-            }
-
-            return _buildPaginationFooter();
-          },
+              ),
+            ),
+            const SizedBox(height: 14),
+            DropdownButtonFormField<String>(
+              key: ValueKey(_selectedCategory),
+              initialValue: _selectedCategory,
+              decoration: InputDecoration(
+                labelText: 'Category',
+                hintText: 'All categories',
+                prefixIcon: const Icon(Icons.category_outlined),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              items: _categories
+                  .map(
+                    (category) => DropdownMenuItem(
+                      value: category,
+                      child: Text(category),
+                    ),
+                  )
+                  .toList(growable: false),
+              onChanged: (category) {
+                setState(() {
+                  _selectedCategory = category;
+                });
+              },
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              'Tags (match all selected)',
+              style: TextStyle(
+                color: _darkBrown,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _tagOptions
+                  .map((tag) {
+                    final isSelected = _selectedTags.contains(tag);
+                    return FilterChip(
+                      label: Text(tag),
+                      selected: isSelected,
+                      selectedColor: _primaryBrown,
+                      checkmarkColor: Colors.white,
+                      labelStyle: TextStyle(
+                        color: isSelected ? Colors.white : _darkBrown,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      onSelected: (selected) {
+                        setState(() {
+                          if (selected) {
+                            _selectedTags.add(tag);
+                          } else {
+                            _selectedTags.remove(tag);
+                          }
+                        });
+                      },
+                    );
+                  })
+                  .toList(growable: false),
+            ),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _applyFilters,
+                icon: const Icon(Icons.search),
+                label: const Text('Search stories'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _primaryBrown,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+              ),
+            ),
+            if (_hasEditableFilters || _hasActiveFilters) ...[
+              const SizedBox(height: 6),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton.icon(
+                  onPressed: _clearFilters,
+                  icon: const Icon(Icons.clear),
+                  label: const Text('Clear filters'),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -240,59 +458,50 @@ class _YouthFeedPageState extends State<YouthFeedPage> {
     );
   }
 
-  Widget _buildMessageState({
+  Widget _buildResultMessage({
     required IconData icon,
     required String title,
     required String message,
     required String actionLabel,
     required VoidCallback onPressed,
   }) {
-    return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(28),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 480),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 64, color: _primaryBrown),
-              const SizedBox(height: 18),
-              Text(
-                title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: _darkBrown,
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.black54,
-                  fontSize: 16,
-                  height: 1.4,
-                ),
-              ),
-              const SizedBox(height: 22),
-              ElevatedButton.icon(
-                onPressed: onPressed,
-                icon: const Icon(Icons.refresh),
-                label: Text(actionLabel),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _primaryBrown,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 14,
-                  ),
-                ),
-              ),
-            ],
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 28),
+      child: Column(
+        children: [
+          Icon(icon, size: 64, color: _primaryBrown),
+          const SizedBox(height: 18),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: _darkBrown,
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+            ),
           ),
-        ),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.black54,
+              fontSize: 16,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 22),
+          ElevatedButton.icon(
+            onPressed: onPressed,
+            icon: const Icon(Icons.refresh),
+            label: Text(actionLabel),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _primaryBrown,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+            ),
+          ),
+        ],
       ),
     );
   }

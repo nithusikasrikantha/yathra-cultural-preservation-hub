@@ -9,10 +9,39 @@ import '../models/story.dart';
 class StoryService {
   const StoryService();
 
-  Future<StoryPage> fetchStories({required int page, int limit = 10}) async {
+  Future<StoryPage> fetchStories({
+    required int page,
+    int limit = 10,
+    String? search,
+    String? category,
+    List<String> tags = const [],
+  }) async {
+    final queryParameters = <String, String>{
+      'page': '$page',
+      'limit': '$limit',
+    };
+
+    final trimmedSearch = search?.trim();
+    if (trimmedSearch != null && trimmedSearch.isNotEmpty) {
+      queryParameters['search'] = trimmedSearch;
+    }
+
+    final trimmedCategory = category?.trim();
+    if (trimmedCategory != null && trimmedCategory.isNotEmpty) {
+      queryParameters['category'] = trimmedCategory;
+    }
+
+    final normalizedTags = tags
+        .map((tag) => tag.trim())
+        .where((tag) => tag.isNotEmpty)
+        .toList(growable: false);
+    if (normalizedTags.isNotEmpty) {
+      queryParameters['tags'] = normalizedTags.join(',');
+    }
+
     final uri = Uri.parse(
       '${ApiConfig.baseUrl}/api/stories',
-    ).replace(queryParameters: {'page': '$page', 'limit': '$limit'});
+    ).replace(queryParameters: queryParameters);
 
     final response = await http.get(uri).timeout(const Duration(seconds: 10));
 

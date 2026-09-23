@@ -5,6 +5,7 @@ class Story {
     required this.category,
     required this.language,
     required this.storyText,
+    this.tags = const [],
     this.audioPath,
     this.createdAt,
   });
@@ -14,6 +15,7 @@ class Story {
   final String category;
   final String language;
   final String storyText;
+  final List<String> tags;
   final String? audioPath;
   final DateTime? createdAt;
 
@@ -24,6 +26,7 @@ class Story {
       category: _requiredString(json, 'category'),
       language: _requiredString(json, 'language'),
       storyText: _requiredString(json, 'storyText'),
+      tags: _stringList(json['tags']),
       audioPath: _optionalString(json['audioPath']),
       createdAt: DateTime.tryParse(_optionalString(json['createdAt']) ?? ''),
     );
@@ -42,6 +45,25 @@ class Story {
       return null;
     }
     return value;
+  }
+
+  static List<String> _stringList(dynamic value) {
+    if (value == null) {
+      return const [];
+    }
+
+    if (value is! List) {
+      throw const FormatException('Story field "tags" is invalid.');
+    }
+
+    return List<String>.unmodifiable(
+      value.map((tag) {
+        if (tag is! String || tag.trim().isEmpty) {
+          throw const FormatException('Story field "tags" is invalid.');
+        }
+        return tag.trim();
+      }),
+    );
   }
 }
 
