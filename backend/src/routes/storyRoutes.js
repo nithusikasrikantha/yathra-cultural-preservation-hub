@@ -52,14 +52,46 @@ router.post('/', async (req, res) => {
 });
 
 // @route   GET /api/stories
-// @desc    Get all active (non-deleted) stories
+// @desc    Get paginated active (non-deleted) stories
 // @access  Public
 router.get('/', async (req, res) => {
   try {
-    const stories = await Story.find({ isDeleted: false }).sort({ createdAt: -1 });
+    const parsePositiveInteger = (value, defaultValue) => {
+      if (value === undefined) return defaultValue;
+      if (typeof value !== 'string' || !/^\d+$/.test(value)) return null;
+
+      const parsedValue = Number(value);
+      return Number.isSafeInteger(parsedValue) && parsedValue > 0 ? parsedValue : null;
+    };
+
+    const page = parsePositiveInteger(req.query.page, 1);
+    const limit = parsePositiveInteger(req.query.limit, 10);
+
+    if (page === null || limit === null || limit > 50) {
+      return res.status(400).json({
+        message: 'Page and limit must be positive integers, and limit cannot exceed 50.',
+      });
+    }
+
+    const skip = (page - 1) * limit;
+    if (!Number.isSafeInteger(skip)) {
+      return res.status(400).json({ message: 'Page value is too large.' });
+    }
+
+    const filter = { isDeleted: false };
+    const [items, totalItems] = await Promise.all([
+      Story.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
+      Story.countDocuments(filter),
+    ]);
+
     return res.status(200).json({
-      count: stories.length,
-      stories,
+      items,
+      pagination: {
+        currentPage: page,
+        pageSize: limit,
+        totalItems,
+        totalPages: Math.ceil(totalItems / limit),
+      },
     });
   } catch (error) {
     console.error('Error fetching stories:', error);
