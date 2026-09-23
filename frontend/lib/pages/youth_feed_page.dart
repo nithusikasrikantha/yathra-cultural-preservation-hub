@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/story.dart';
 import '../services/story_service.dart';
+import 'youth_story_detail_page.dart';
 
 class YouthFeedPage extends StatefulWidget {
   const YouthFeedPage({super.key});
@@ -186,6 +187,14 @@ class _YouthFeedPageState extends State<YouthFeedPage> {
     _loadFirstPage();
   }
 
+  void _openStory(String storyId) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => YouthStoryDetailPage(storyId: storyId),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -265,7 +274,8 @@ class _YouthFeedPageState extends State<YouthFeedPage> {
                 onPressed: _hasActiveFilters ? _clearFilters : _loadFirstPage,
               )
             else ...[
-              for (final story in _stories) _StoryCard(story: story),
+              for (final story in _stories)
+                _StoryCard(story: story, onTap: () => _openStory(story.id)),
               _buildPaginationFooter(),
             ],
           ],
@@ -508,9 +518,10 @@ class _YouthFeedPageState extends State<YouthFeedPage> {
 }
 
 class _StoryCard extends StatelessWidget {
-  const _StoryCard({required this.story});
+  const _StoryCard({required this.story, required this.onTap});
 
   final Story story;
+  final VoidCallback onTap;
 
   static const Color _primaryBrown = Color(0xFF6B4226);
   static const Color _darkBrown = Color(0xFF4A2C1A);
@@ -519,65 +530,86 @@ class _StoryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       container: true,
+      button: true,
       label: '${story.title}, ${story.category}, ${story.language}',
       child: Card(
         color: Colors.white,
         elevation: 1.5,
         margin: const EdgeInsets.only(bottom: 16),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _MetadataChip(
-                    icon: Icons.category_outlined,
-                    label: story.category,
-                  ),
-                  _MetadataChip(
-                    icon: Icons.language_outlined,
-                    label: story.language,
-                  ),
-                  if (story.audioPath != null)
-                    const _MetadataChip(
-                      icon: Icons.mic_none_outlined,
-                      label: 'Audio included',
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _MetadataChip(
+                      icon: Icons.category_outlined,
+                      label: story.category,
                     ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Text(
-                story.title,
-                style: const TextStyle(
-                  color: _darkBrown,
-                  fontSize: 21,
-                  fontWeight: FontWeight.bold,
-                  height: 1.25,
+                    _MetadataChip(
+                      icon: Icons.language_outlined,
+                      label: story.language,
+                    ),
+                    if (story.audioPath != null)
+                      const _MetadataChip(
+                        icon: Icons.mic_none_outlined,
+                        label: 'Audio included',
+                      ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                story.storyText,
-                maxLines: 4,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.black87,
-                  fontSize: 16,
-                  height: 1.5,
-                ),
-              ),
-              if (story.createdAt != null) ...[
                 const SizedBox(height: 14),
                 Text(
-                  'Shared ${_formatDate(story.createdAt!)}',
-                  style: const TextStyle(color: Colors.black54, fontSize: 14),
+                  story.title,
+                  style: const TextStyle(
+                    color: _darkBrown,
+                    fontSize: 21,
+                    fontWeight: FontWeight.bold,
+                    height: 1.25,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  story.storyText,
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.black87,
+                    fontSize: 16,
+                    height: 1.5,
+                  ),
+                ),
+                if (story.createdAt != null) ...[
+                  const SizedBox(height: 14),
+                  Text(
+                    'Shared ${_formatDate(story.createdAt!)}',
+                    style: const TextStyle(color: Colors.black54, fontSize: 14),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                const Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Text(
+                      'Read full story',
+                      style: TextStyle(
+                        color: _primaryBrown,
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    SizedBox(width: 6),
+                    Icon(Icons.arrow_forward, size: 19, color: _primaryBrown),
+                  ],
                 ),
               ],
-            ],
+            ),
           ),
         ),
       ),

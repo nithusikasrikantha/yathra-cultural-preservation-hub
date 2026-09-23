@@ -9,6 +9,34 @@ import '../models/story.dart';
 class StoryService {
   const StoryService();
 
+  Future<Story> fetchStoryById(String id) async {
+    final uri = Uri.parse(
+      '${ApiConfig.baseUrl}/api/stories/${Uri.encodeComponent(id)}',
+    );
+
+    final response = await http.get(uri).timeout(const Duration(seconds: 10));
+
+    if (response.statusCode == 404) {
+      throw const StoryNotFoundException();
+    }
+
+    if (response.statusCode != 200) {
+      throw StoryServiceException(_errorMessage(response));
+    }
+
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('Invalid story response.');
+    }
+
+    final storyJson = decoded['story'];
+    if (storyJson is! Map<String, dynamic>) {
+      throw const FormatException('Invalid story response.');
+    }
+
+    return Story.fromJson(storyJson);
+  }
+
   Future<StoryPage> fetchStories({
     required int page,
     int limit = 10,
@@ -69,4 +97,17 @@ class StoryService {
 
     return 'Unable to load stories. Server returned ${response.statusCode}.';
   }
+}
+
+class StoryNotFoundException implements Exception {
+  const StoryNotFoundException();
+}
+
+class StoryServiceException implements Exception {
+  const StoryServiceException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
 }
