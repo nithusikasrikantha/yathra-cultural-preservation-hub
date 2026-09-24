@@ -32,6 +32,20 @@ class ApiService {
     }
   }
 
+  Future<dynamic> put(String endpoint, {dynamic body, Map<String, String>? headers}) async {
+    try {
+      final response = await http.put(
+        Uri.parse('$baseUrl$endpoint'),
+        headers: headers ?? {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      );
+      return _handleResponse(response);
+    } catch (e) {
+      if (e is Exception && e.toString().startsWith('Exception: ')) rethrow;
+      throw Exception('PUT request failed: $e');
+    }
+  }
+
   dynamic _handleResponse(http.Response response) {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return jsonDecode(response.body);
