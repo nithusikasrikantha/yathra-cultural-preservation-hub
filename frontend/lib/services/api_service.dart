@@ -27,6 +27,7 @@ class ApiService {
       );
       return _handleResponse(response);
     } catch (e) {
+      if (e is Exception && e.toString().startsWith('Exception: ')) rethrow;
       throw Exception('POST request failed: $e');
     }
   }
@@ -35,7 +36,16 @@ class ApiService {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return jsonDecode(response.body);
     } else {
-      throw Exception('Error: ${response.statusCode} - ${response.body}');
+      var message = 'Request failed (${response.statusCode}).';
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic> && decoded['message'] is String) {
+          message = decoded['message'] as String;
+        }
+      } catch (_) {
+        // Keep the status-based message when the response is not JSON.
+      }
+      throw Exception(message);
     }
   }
 }

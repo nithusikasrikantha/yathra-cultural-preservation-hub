@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/auth_service.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -10,6 +11,43 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterScreenState extends State<RegisterScreen> {
   String _selectedLanguage = 'English';
   String _selectedRegion = 'Jaffna';
+  final _nameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  final _authService = AuthService();
+  bool _isSubmitting = false;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _register() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _isSubmitting = true);
+    try {
+      final result = await _authService.register(
+        name: _nameController.text.trim(),
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result['message'] as String? ?? 'Registration successful.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))),
+      );
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -22,17 +60,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 30.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Create Account',
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Create Account',
+                  style: Theme.of(context).textTheme.headlineMedium,
+                ),
               const SizedBox(height: 30),
               _buildFieldLabel('FULL NAME'),
-              const TextField(
-                decoration: InputDecoration(hintText: 'Enter your full name'),
+              TextFormField(
+                controller: _nameController,
+                decoration: const InputDecoration(hintText: 'Enter your full name'),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'Name is required.'
+                    : null,
               ),
               const SizedBox(height: 20),
               _buildFieldLabel('LANGUAGE PREFERENCE'),
@@ -46,19 +90,37 @@ class _RegisterScreenState extends State<RegisterScreen> {
               }),
               const SizedBox(height: 20),
               _buildFieldLabel('EMAIL OR PHONE NUMBER'),
-              const TextField(
-                decoration: InputDecoration(hintText: 'e.g. email@example.com'),
+              TextFormField(
+                controller: _emailController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(hintText: 'e.g. email@example.com'),
+                validator: (value) {
+                  final email = value?.trim() ?? '';
+                  if (email.isEmpty) return 'Email is required.';
+                  if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$').hasMatch(email)) {
+                    return 'Enter a valid email address.';
+                  }
+                  return null;
+                },
               ),
               const SizedBox(height: 20),
               _buildFieldLabel('PASSWORD'),
-              const TextField(
+              TextFormField(
+                controller: _passwordController,
                 obscureText: true,
-                decoration: InputDecoration(hintText: 'Create a strong password'),
+                decoration: const InputDecoration(hintText: 'Create a strong password'),
+                validator: (value) {
+                  if (value == null || value.isEmpty) return 'Password is required.';
+                  if (value.length < 8 || value.length > 128) {
+                    return 'Password must be between 8 and 128 characters.';
+                  }
+                  return null;
+                },
               ),
               const SizedBox(height: 40),
               ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Continue'),
+                onPressed: _isSubmitting ? null : _register,
+                child: Text(_isSubmitting ? 'Creating account...' : 'Continue'),
               ),
               const SizedBox(height: 20),
               Center(
@@ -77,7 +139,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
               ),
               const SizedBox(height: 40),
-            ],
+              ],
+            ),
           ),
         ),
       ),
