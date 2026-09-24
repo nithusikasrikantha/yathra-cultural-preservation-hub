@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'theme/app_theme.dart';
+import 'screens/splash_screen.dart';
 
 import 'pages/share_story_page.dart';
 import 'pages/youth_feed_page.dart';
@@ -17,26 +19,14 @@ class YathraApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'YATHRA',
-      theme: ThemeData(
-        useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xFFF8F3EA),
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF6B4226),
-          primary: const Color(0xFF6B4226),
-          surface: const Color(0xFFF8F3EA),
-        ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF6B4226),
-          foregroundColor: Colors.white,
-          elevation: 0,
-        ),
-      ),
+      theme: AppTheme.lightTheme,
       routes: {
         '/youth-feed': (context) => const YouthFeedPage(),
         '/youth-profile': (context) => const YouthProfilePage(),
         '/youth-saved': (context) => const YouthSavedPostsPage(),
+        '/share-story': (context) => const ShareStoryPage(),
       },
-      home: const ShareStoryPage(),
+      home: const SplashScreen(),
     );
   }
 }
