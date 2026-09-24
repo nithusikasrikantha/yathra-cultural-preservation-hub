@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/story.dart';
+import '../services/bookmark_service.dart';
 import '../services/story_service.dart';
 
 class YouthStoryDetailPage extends StatefulWidget {
@@ -18,8 +19,10 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
   static const Color _darkBrown = Color(0xFF4A2C1A);
 
   final StoryService _storyService = const StoryService();
+  final BookmarkService _bookmarkService = BookmarkService.instance;
 
   Story? _story;
+  bool _bookmarksReady = false;
   bool _isLoading = true;
   bool _isNotFound = false;
   String? _errorMessage;
@@ -27,7 +30,48 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
   @override
   void initState() {
     super.initState();
+    _bookmarkService.addListener(_handleBookmarksChanged);
+    _initializeBookmarks();
     _loadStory();
+  }
+
+  @override
+  void dispose() {
+    _bookmarkService.removeListener(_handleBookmarksChanged);
+    super.dispose();
+  }
+
+  Future<void> _initializeBookmarks() async {
+    try {
+      await _bookmarkService.load();
+      if (!mounted) return;
+      setState(() {
+        _bookmarksReady = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _bookmarksReady = false;
+      });
+    }
+  }
+
+  void _handleBookmarksChanged() {
+    if (!mounted) return;
+    setState(() {
+      _bookmarksReady = _bookmarkService.isLoaded;
+    });
+  }
+
+  Future<void> _toggleBookmark() async {
+    try {
+      await _bookmarkService.toggle(widget.storyId);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('The bookmark could not be updated.')),
+      );
+    }
   }
 
   Future<void> _loadStory() async {
@@ -73,6 +117,21 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
           'Story Details',
           style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
         ),
+        actions: [
+          IconButton(
+            onPressed: _story != null && _bookmarksReady
+                ? _toggleBookmark
+                : null,
+            tooltip: _bookmarkService.isBookmarked(widget.storyId)
+                ? 'Remove bookmark'
+                : 'Save story',
+            icon: Icon(
+              _bookmarkService.isBookmarked(widget.storyId)
+                  ? Icons.bookmark
+                  : Icons.bookmark_border,
+            ),
+          ),
+        ],
       ),
       body: SafeArea(child: _buildBody()),
     );

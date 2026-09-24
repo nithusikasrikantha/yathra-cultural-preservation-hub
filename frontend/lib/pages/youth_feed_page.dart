@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/story.dart';
+import '../services/bookmark_service.dart';
 import '../services/story_service.dart';
 import 'youth_story_detail_page.dart';
 
@@ -38,11 +39,13 @@ class _YouthFeedPageState extends State<YouthFeedPage> {
   ];
 
   final StoryService _storyService = const StoryService();
+  final BookmarkService _bookmarkService = BookmarkService.instance;
   final List<Story> _stories = [];
   final TextEditingController _searchController = TextEditingController();
   final Set<String> _selectedTags = {};
 
   bool _isInitialLoading = true;
+  bool _bookmarksReady = false;
   bool _isLoadingMore = false;
   String? _initialError;
   String? _loadMoreError;
@@ -67,13 +70,49 @@ class _YouthFeedPageState extends State<YouthFeedPage> {
   @override
   void initState() {
     super.initState();
+    _bookmarkService.addListener(_handleBookmarksChanged);
+    _initializeBookmarks();
     _loadFirstPage();
   }
 
   @override
   void dispose() {
+    _bookmarkService.removeListener(_handleBookmarksChanged);
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _initializeBookmarks() async {
+    try {
+      await _bookmarkService.load();
+      if (!mounted) return;
+      setState(() {
+        _bookmarksReady = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _bookmarksReady = false;
+      });
+    }
+  }
+
+  void _handleBookmarksChanged() {
+    if (!mounted) return;
+    setState(() {
+      _bookmarksReady = _bookmarkService.isLoaded;
+    });
+  }
+
+  Future<void> _toggleBookmark(String storyId) async {
+    try {
+      await _bookmarkService.toggle(storyId);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('The bookmark could not be updated.')),
+      );
+    }
   }
 
   Future<void> _loadFirstPage() async {
@@ -205,6 +244,13 @@ class _YouthFeedPageState extends State<YouthFeedPage> {
           style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
+        actions: [
+          IconButton(
+            onPressed: () => Navigator.of(context).pushNamed('/youth-saved'),
+            tooltip: 'Saved posts',
+            icon: const Icon(Icons.bookmarks_outlined),
+          ),
+        ],
       ),
       body: SafeArea(child: _buildBody()),
     );
@@ -275,7 +321,16 @@ class _YouthFeedPageState extends State<YouthFeedPage> {
               )
             else ...[
               for (final story in _stories)
-                _StoryCard(story: story, onTap: () => _openStory(story.id)),
+                _StoryCard(
+                  story: story,
+                  onTap: () => _openStory(story.id),
+                  isBookmarked:
+                      _bookmarksReady &&
+                      _bookmarkService.isBookmarked(story.id),
+                  onBookmark: _bookmarksReady
+                      ? () => _toggleBookmark(story.id)
+                      : null,
+                ),
               _buildPaginationFooter(),
             ],
           ],
@@ -518,10 +573,17 @@ class _YouthFeedPageState extends State<YouthFeedPage> {
 }
 
 class _StoryCard extends StatelessWidget {
-  const _StoryCard({required this.story, required this.onTap});
+  const _StoryCard({
+    required this.story,
+    required this.onTap,
+    required this.isBookmarked,
+    required this.onBookmark,
+  });
 
   final Story story;
   final VoidCallback onTap;
+  final bool isBookmarked;
+  final VoidCallback? onBookmark;
 
   static const Color _primaryBrown = Color(0xFF6B4226);
   static const Color _darkBrown = Color(0xFF4A2C1A);
@@ -593,10 +655,19 @@ class _StoryCard extends StatelessWidget {
                   ),
                 ],
                 const SizedBox(height: 16),
-                const Row(
+                Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    Text(
+                    IconButton(
+                      onPressed: onBookmark,
+                      tooltip: isBookmarked ? 'Remove bookmark' : 'Save story',
+                      icon: Icon(
+                        isBookmarked ? Icons.bookmark : Icons.bookmark_border,
+                        color: _primaryBrown,
+                      ),
+                    ),
+                    const Spacer(),
+                    const Text(
                       'Read full story',
                       style: TextStyle(
                         color: _primaryBrown,
@@ -604,8 +675,12 @@ class _StoryCard extends StatelessWidget {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    SizedBox(width: 6),
-                    Icon(Icons.arrow_forward, size: 19, color: _primaryBrown),
+                    const SizedBox(width: 6),
+                    const Icon(
+                      Icons.arrow_forward,
+                      size: 19,
+                      color: _primaryBrown,
+                    ),
                   ],
                 ),
               ],
