@@ -1,32 +1,21 @@
-const express = require('express');
-const cors = require('cors');
-const dotenv = require('dotenv');
-const connectDB = require('./config/db');
-const storyRoutes = require('./routes/storyRoutes');
+const app = require('./app');
+const { port, mongodbUri, validateEnv } = require('./config/env');
+const connectDB = require('./config/database');
 
-dotenv.config();
+// Validate Environment Variables
+validateEnv();
 
-const app = express();
+// Connect to Database
+connectDB(mongodbUri);
 
-// Middleware
-app.use(cors());
-app.use(express.json());
-
-// Connect Database
-connectDB();
-
-// Routes
-app.use('/api/stories', storyRoutes);
-
-// Test Endpoint
-app.get('/', (req, res) => {
-  res.json({
-    message: 'YATHRA Backend is running'
-  });
+// Start Server
+const server = app.listen(port, () => {
+  console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${port}`);
 });
 
-const PORT = process.env.PORT || 5000;
-
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (err, promise) => {
+  console.log(`Error: ${err.message}`);
+  // Close server & exit process
+  server.close(() => process.exit(1));
 });
