@@ -25,5 +25,6 @@ const connectionSchema = new mongoose.Schema(
 
 // Prevent users from having multiple connections with each other in the same direction
 connectionSchema.index({ requester: 1, receiver: 1 }, { unique: true });
+connectionSchema.index({ receiver: 1, status: 1 });
 
 module.exports = mongoose.model('Connection', connectionSchema);

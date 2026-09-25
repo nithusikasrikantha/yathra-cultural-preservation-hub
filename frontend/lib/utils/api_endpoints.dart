@@ -4,6 +4,7 @@ class ApiEndpoints {
   // Auth
   static const String register = '/api/auth/register';
   static const String login = '/api/auth/login';
+  static const String updateRole = '/api/auth/role';
   
   // Content
   static const String culturalContent = '/api/content';

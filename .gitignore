@@ -19,6 +19,7 @@ frontend/android/app/src/main/res/values/strings.xml (generated)
 # IDE
 .idea/
 .vscode/
+.artifacts/
 *.iml
 *.ipr
 *.iws

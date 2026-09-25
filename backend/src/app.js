@@ -3,6 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const storyRoutes = require('./routes/storyRoutes');
+const authRoutes = require('./routes/authRoutes');
 const { errorHandler, notFound } = require('./middleware/errorMiddleware');
 const { nodeEnv } = require('./config/env');
 
@@ -23,6 +24,7 @@ app.use(express.urlencoded({ extended: false }));
 
 // Routes
 app.use('/api/stories', storyRoutes);
+app.use('/api/auth', authRoutes);
 
 // Health Check Route
 app.get('/api/health', (req, res) => {

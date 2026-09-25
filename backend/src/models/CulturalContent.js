@@ -47,4 +47,6 @@ const culturalContentSchema = new mongoose.Schema(
   }
 );
 
+culturalContentSchema.index({ author: 1, createdAt: -1 });
+
 module.exports = mongoose.model('CulturalContent', culturalContentSchema);
