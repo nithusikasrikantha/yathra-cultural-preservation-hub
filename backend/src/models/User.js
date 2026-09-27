@@ -6,6 +6,7 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: [true, 'Please add a name'],
       trim: true,
+      maxlength: [100, 'Name cannot be more than 100 characters'],
     },
     email: {
       type: String,
@@ -28,9 +29,29 @@ const userSchema = new mongoose.Schema(
     },
     profileInfo: {
       bio: String,
-      avatar: String,
-      interests: [String],
-      location: String,
+      avatar: {
+        type: String,
+        trim: true,
+        maxlength: [2048, 'Avatar URL cannot be more than 2048 characters'],
+      },
+      interests: {
+        type: [String],
+        default: [],
+      },
+      location: {
+        type: String,
+        trim: true,
+        maxlength: [100, 'Location cannot be more than 100 characters'],
+      },
+      ageGroup: {
+        type: String,
+        trim: true,
+        maxlength: [30, 'Age or age group cannot be more than 30 characters'],
+      },
+      preferredLanguage: {
+        type: String,
+        enum: ['Tamil', 'Sinhala', 'English'],
+      },
     },
   },
   {

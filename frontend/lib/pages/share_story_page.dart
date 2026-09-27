@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
@@ -10,12 +10,9 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
-enum RecordingState {
-  notRecorded,
-  recording,
-  recorded,
-  playing,
-}
+import '../config/api_config.dart';
+
+enum RecordingState { notRecorded, recording, recorded, playing }
 
 class ShareStoryPage extends StatefulWidget {
   final Map<String, dynamic>? storyToEdit;
@@ -41,11 +38,7 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     'Other',
   ];
 
-  final List<String> _languages = [
-    'Tamil',
-    'Sinhala',
-    'English',
-  ];
+  final List<String> _languages = ['Tamil', 'Sinhala', 'English'];
 
   String? _selectedCategory = 'Traditional Story';
   String? _selectedLanguage = 'Tamil';
@@ -76,22 +69,12 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
   static const Color _primaryBrown = Color(0xFF6B4226);
   static const Color _darkBrown = Color(0xFF4A2C1A);
 
-  bool get _isEditing => widget.storyToEdit != null && widget.storyToEdit!['_id'] != null;
-  String? get _editingStoryId => widget.storyToEdit != null ? widget.storyToEdit!['_id'] : null;
+  bool get _isEditing =>
+      widget.storyToEdit != null && widget.storyToEdit!['_id'] != null;
+  String? get _editingStoryId =>
+      widget.storyToEdit != null ? widget.storyToEdit!['_id'] : null;
 
-  // Backend Base URL Configuration:
-  // - Android Emulator: http://10.0.2.2:5000
-  // - Windows / Web / iOS Simulator: http://localhost:5000
-  // - Physical Device: Change to computer's local Wi-Fi IP address (e.g. http://192.168.1.100:5000)
-  String get _baseUrl {
-    if (kIsWeb) {
-      return 'http://localhost:5000';
-    } else if (Platform.isAndroid) {
-      return 'http://10.0.2.2:5000';
-    } else {
-      return 'http://localhost:5000';
-    }
-  }
+  String get _baseUrl => ApiConfig.baseUrl;
 
   @override
   void initState() {
@@ -106,13 +89,15 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
       final story = widget.storyToEdit!;
       _titleController.text = story['title'] ?? '';
       _storyController.text = story['storyText'] ?? '';
-      if (story['category'] != null && _categories.contains(story['category'])) {
+      if (story['category'] != null &&
+          _categories.contains(story['category'])) {
         _selectedCategory = story['category'];
       }
       if (story['language'] != null && _languages.contains(story['language'])) {
         _selectedLanguage = story['language'];
       }
-      if (story['audioPath'] != null && story['audioPath'].toString().isNotEmpty) {
+      if (story['audioPath'] != null &&
+          story['audioPath'].toString().isNotEmpty) {
         _recordedFilePath = story['audioPath'];
         _recordingState = RecordingState.recorded;
       }
@@ -230,7 +215,9 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
       }
 
       if (!await _audioRecorder.hasPermission()) {
-        _showSnackBar('Microphone permission is required to record your voice.');
+        _showSnackBar(
+          'Microphone permission is required to record your voice.',
+        );
         return;
       }
 
@@ -375,7 +362,9 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
           }
         },
         onStatus: (val) {
-          if ((val == 'done' || val == 'notListening') && mounted && _isConvertingToText) {
+          if ((val == 'done' || val == 'notListening') &&
+              mounted &&
+              _isConvertingToText) {
             setState(() {
               _isConvertingToText = false;
             });
@@ -390,7 +379,9 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
           setState(() {
             _isConvertingToText = false;
           });
-          _showSnackBar('Speech recognition service is not available on this device.');
+          _showSnackBar(
+            'Speech recognition service is not available on this device.',
+          );
         }
         return;
       }
@@ -410,7 +401,8 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
               if (_storyController.text.trim().isEmpty) {
                 _storyController.text = transcribedResult;
               } else {
-                _storyController.text = '${_storyController.text.trim()}\n\n$transcribedResult';
+                _storyController.text =
+                    '${_storyController.text.trim()}\n\n$transcribedResult';
               }
             });
           }
@@ -430,9 +422,13 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
         });
 
         if (_storyController.text.isNotEmpty) {
-          _showSnackBar('Voice converted to text! You can edit the story below.');
+          _showSnackBar(
+            'Voice converted to text! You can edit the story below.',
+          );
         } else {
-          _showSnackBar('Speech-to-text complete. You can type or edit your story.');
+          _showSnackBar(
+            'Speech-to-text complete. You can type or edit your story.',
+          );
         }
       }
     } catch (e) {
@@ -568,8 +564,9 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
       }
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        final String successMessage =
-            _isEditing ? 'Story updated successfully!' : 'Story published successfully!';
+        final String successMessage = _isEditing
+            ? 'Story updated successfully!'
+            : 'Story published successfully!';
         _showSnackBar(successMessage);
         if (_isEditing) {
           Future.delayed(const Duration(seconds: 1), () {
@@ -581,16 +578,21 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
       } else {
         try {
           final Map<String, dynamic> responseData = jsonDecode(response.body);
-          final String errorMsg = responseData['message'] ?? 'Failed to save story.';
+          final String errorMsg =
+              responseData['message'] ?? 'Failed to save story.';
           _showSnackBar(errorMsg);
         } catch (_) {
           _showSnackBar('Failed to save story. Server returned error.');
         }
       }
     } on TimeoutException {
-      _showSnackBar('Connection timed out. Please check your network and try again.');
+      _showSnackBar(
+        'Connection timed out. Please check your network and try again.',
+      );
     } on SocketException {
-      _showSnackBar('Unable to connect to backend server. Please verify the server is running.');
+      _showSnackBar(
+        'Unable to connect to backend server. Please verify the server is running.',
+      );
     } catch (e) {
       _showSnackBar('Failed to save story. Please try again.');
     } finally {
@@ -611,7 +613,9 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
       builder: (BuildContext dialogContext) {
         return AlertDialog(
           backgroundColor: _bgColor,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
           title: const Text(
             'Delete Story?',
             style: TextStyle(
@@ -629,14 +633,20 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
               onPressed: () => Navigator.pop(dialogContext, false),
               child: const Text(
                 'Cancel',
-                style: TextStyle(fontSize: 16, color: Colors.grey, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red.shade700,
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
               onPressed: () => Navigator.pop(dialogContext, true),
               child: const Text(
@@ -665,10 +675,7 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     try {
       final Uri url = Uri.parse('$_baseUrl/api/stories/$_editingStoryId');
       final http.Response response = await http
-          .delete(
-            url,
-            headers: {'Content-Type': 'application/json'},
-          )
+          .delete(url, headers: {'Content-Type': 'application/json'})
           .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -692,16 +699,21 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
       } else {
         try {
           final Map<String, dynamic> responseData = jsonDecode(response.body);
-          final String errorMsg = responseData['message'] ?? 'Failed to delete story.';
+          final String errorMsg =
+              responseData['message'] ?? 'Failed to delete story.';
           _showSnackBar(errorMsg);
         } catch (_) {
           _showSnackBar('Failed to delete story. Server returned error.');
         }
       }
     } on TimeoutException {
-      _showSnackBar('Connection timed out. Please check your network and try again.');
+      _showSnackBar(
+        'Connection timed out. Please check your network and try again.',
+      );
     } on SocketException {
-      _showSnackBar('Unable to connect to backend server. Please verify the server is running.');
+      _showSnackBar(
+        'Unable to connect to backend server. Please verify the server is running.',
+      );
     } catch (e) {
       _showSnackBar('Failed to delete story. Please try again.');
     } finally {
@@ -756,7 +768,9 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
               TextField(
                 controller: _titleController,
                 style: const TextStyle(fontSize: 18, color: _darkBrown),
-                decoration: _buildInputDecoration('Enter a title for your story'),
+                decoration: _buildInputDecoration(
+                  'Enter a title for your story',
+                ),
               ),
               const SizedBox(height: 24),
 
@@ -766,7 +780,11 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
               DropdownButtonFormField<String>(
                 initialValue: _selectedCategory,
                 style: const TextStyle(fontSize: 18, color: _darkBrown),
-                icon: const Icon(Icons.arrow_drop_down, color: _primaryBrown, size: 32),
+                icon: const Icon(
+                  Icons.arrow_drop_down,
+                  color: _primaryBrown,
+                  size: 32,
+                ),
                 decoration: _buildInputDecoration('Select a category'),
                 items: _categories.map((String category) {
                   return DropdownMenuItem<String>(
@@ -788,7 +806,11 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
               DropdownButtonFormField<String>(
                 initialValue: _selectedLanguage,
                 style: const TextStyle(fontSize: 18, color: _darkBrown),
-                icon: const Icon(Icons.arrow_drop_down, color: _primaryBrown, size: 32),
+                icon: const Icon(
+                  Icons.arrow_drop_down,
+                  color: _primaryBrown,
+                  size: 32,
+                ),
                 decoration: _buildInputDecoration('Select a language'),
                 items: _languages.map((String language) {
                   return DropdownMenuItem<String>(
@@ -831,7 +853,10 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
                       child: OutlinedButton.icon(
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 16),
-                          side: BorderSide(color: Colors.red.shade700, width: 2),
+                          side: BorderSide(
+                            color: Colors.red.shade700,
+                            width: 2,
+                          ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10),
                           ),
@@ -840,9 +865,16 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
                             ? const SizedBox(
                                 width: 20,
                                 height: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.red),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.red,
+                                ),
                               )
-                            : Icon(Icons.delete_outline, color: Colors.red.shade700, size: 24),
+                            : Icon(
+                                Icons.delete_outline,
+                                color: Colors.red.shade700,
+                                size: 24,
+                              ),
                         label: Text(
                           _isDeleting ? 'Deleting...' : 'Delete Story',
                           style: TextStyle(
@@ -851,7 +883,9 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
                             color: Colors.red.shade700,
                           ),
                         ),
-                        onPressed: (_isDeleting || _isPublishing) ? null : _confirmAndDeleteStory,
+                        onPressed: (_isDeleting || _isPublishing)
+                            ? null
+                            : _confirmAndDeleteStory,
                       ),
                     ),
                     const SizedBox(width: 16),
@@ -870,7 +904,10 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
                             ? const SizedBox(
                                 width: 20,
                                 height: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
                               )
                             : const Icon(Icons.check, size: 24),
                         label: Text(
@@ -880,7 +917,9 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        onPressed: (_isPublishing || _isDeleting) ? null : _publishOrUpdateStory,
+                        onPressed: (_isPublishing || _isDeleting)
+                            ? null
+                            : _publishOrUpdateStory,
                       ),
                     ),
                   ],
@@ -892,7 +931,10 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
                       child: OutlinedButton(
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 16),
-                          side: const BorderSide(color: _primaryBrown, width: 2),
+                          side: const BorderSide(
+                            color: _primaryBrown,
+                            width: 2,
+                          ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10),
                           ),
@@ -994,9 +1036,7 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
         style: OutlinedButton.styleFrom(
           padding: const EdgeInsets.symmetric(vertical: 12),
           side: const BorderSide(color: _primaryBrown, width: 1.5),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
         icon: const Icon(Icons.volume_up, color: _primaryBrown, size: 24),
         label: Text(
@@ -1018,7 +1058,10 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12.0),
-        border: Border.all(color: _primaryBrown.withValues(alpha: 0.3), width: 1.5),
+        border: Border.all(
+          color: _primaryBrown.withValues(alpha: 0.3),
+          width: 1.5,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1045,11 +1088,7 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
             color: _primaryBrown.withValues(alpha: 0.1),
             shape: BoxShape.circle,
           ),
-          child: const Icon(
-            Icons.mic,
-            color: _primaryBrown,
-            size: 32,
-          ),
+          child: const Icon(Icons.mic, color: _primaryBrown, size: 32),
         ),
         const SizedBox(width: 16),
         Expanded(
@@ -1067,10 +1106,7 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
               SizedBox(height: 4),
               Text(
                 'Share your story using your voice',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.black54,
-                ),
+                style: TextStyle(fontSize: 14, color: Colors.black54),
               ),
             ],
           ),
@@ -1347,9 +1383,7 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
           backgroundColor: _primaryBrown,
           foregroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(vertical: 14),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
         icon: const Icon(Icons.record_voice_over, size: 22),
         label: const Text(
