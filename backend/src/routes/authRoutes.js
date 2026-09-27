@@ -6,6 +6,48 @@ const { jwtSecret } = require('../config/env');
 
 const router = express.Router();
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const youthLanguages = new Set(['Tamil', 'Sinhala', 'English']);
+const youthInterests = new Set([
+  'Folklore',
+  'Traditional Food',
+  'Music',
+  'Dance',
+  'Festivals',
+  'Language',
+  'History',
+  'Crafts',
+]);
+const youthProfileFields = new Set([
+  'name',
+  'ageGroup',
+  'preferredLanguage',
+  'location',
+  'interests',
+  'avatar',
+]);
+
+const isNonEmptyString = (value) => typeof value === 'string' && value.trim().length > 0;
+
+const isYouthProfileComplete = (user) => {
+  const profile = user.profileInfo || {};
+  return user.role === 'youth'
+    && isNonEmptyString(user.name)
+    && isNonEmptyString(profile.ageGroup)
+    && youthLanguages.has(profile.preferredLanguage)
+    && isNonEmptyString(profile.location)
+    && Array.isArray(profile.interests)
+    && profile.interests.length > 0;
+};
+
+const youthProfileResponse = (user) => ({
+  name: user.name,
+  ageGroup: user.profileInfo?.ageGroup || '',
+  preferredLanguage: user.profileInfo?.preferredLanguage || '',
+  location: user.profileInfo?.location || '',
+  interests: user.profileInfo?.interests || [],
+  avatar: user.profileInfo?.avatar || null,
+  profileComplete: isYouthProfileComplete(user),
+});
 
 const publicUser = (user) => ({
   _id: user._id,
@@ -13,6 +55,7 @@ const publicUser = (user) => ({
   email: user.email,
   role: user.role,
   profileInfo: user.profileInfo,
+  profileComplete: isYouthProfileComplete(user),
   createdAt: user.createdAt,
   updatedAt: user.updatedAt,
 });
@@ -38,6 +81,79 @@ const authenticate = async (req, res, next) => {
   } catch (_) {
     return res.status(401).json({ message: 'Authentication required.' });
   }
+};
+
+const requireYouth = (req, res, next) => {
+  if (req.user.role !== 'youth') {
+    return res.status(403).json({ message: 'A youth account is required.' });
+  }
+  return next();
+};
+
+const validateYouthProfile = (body) => {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return { error: 'A youth profile object is required.' };
+  }
+
+  const unsupportedFields = Object.keys(body).filter((field) => !youthProfileFields.has(field));
+  if (unsupportedFields.length > 0) {
+    return { error: `Unsupported youth profile field: ${unsupportedFields[0]}.` };
+  }
+
+  const { name, ageGroup, preferredLanguage, location, interests, avatar } = body;
+
+  if (!isNonEmptyString(name) || name.trim().length > 100) {
+    return { error: 'Name is required and cannot exceed 100 characters.' };
+  }
+  if (!isNonEmptyString(ageGroup) || ageGroup.trim().length > 30) {
+    return { error: 'Age or age group is required and cannot exceed 30 characters.' };
+  }
+  if (!youthLanguages.has(preferredLanguage)) {
+    return { error: 'Preferred language must be Tamil, Sinhala, or English.' };
+  }
+  if (!isNonEmptyString(location) || location.trim().length > 100) {
+    return { error: 'Location is required and cannot exceed 100 characters.' };
+  }
+  if (!Array.isArray(interests) || interests.length === 0) {
+    return { error: 'Select at least one cultural interest.' };
+  }
+
+  const normalizedInterests = [];
+  const seenInterests = new Set();
+  for (const interest of interests) {
+    if (!youthInterests.has(interest)) {
+      return { error: 'One or more cultural interests are invalid.' };
+    }
+    if (!seenInterests.has(interest)) {
+      seenInterests.add(interest);
+      normalizedInterests.push(interest);
+    }
+  }
+
+  let normalizedAvatar;
+  if (avatar !== undefined && avatar !== null && avatar !== '') {
+    if (typeof avatar !== 'string' || avatar.length > 2048) {
+      return { error: 'Avatar must be a valid URL no longer than 2048 characters.' };
+    }
+    try {
+      const avatarUrl = new URL(avatar);
+      if (!['http:', 'https:'].includes(avatarUrl.protocol)) throw new Error('Invalid protocol');
+      normalizedAvatar = avatar.trim();
+    } catch (_) {
+      return { error: 'Avatar must be a valid HTTP or HTTPS URL.' };
+    }
+  }
+
+  return {
+    value: {
+      name: name.trim(),
+      ageGroup: ageGroup.trim(),
+      preferredLanguage,
+      location: location.trim(),
+      interests: normalizedInterests,
+      avatar: normalizedAvatar,
+    },
+  };
 };
 
 // @route   POST /api/auth/register
@@ -146,6 +262,48 @@ router.put('/role', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Error updating user role:', error);
     return res.status(500).json({ message: 'Role update failed due to a server error.' });
+  }
+});
+
+// @route   GET /api/auth/youth-profile
+// @desc    Get the authenticated youth user's profile
+// @access  Authenticated youth user
+router.get('/youth-profile', authenticate, requireYouth, (req, res) => {
+  return res.status(200).json({ profile: youthProfileResponse(req.user) });
+});
+
+// @route   PUT /api/auth/youth-profile
+// @desc    Create or replace the authenticated youth user's profile fields
+// @access  Authenticated youth user
+router.put('/youth-profile', authenticate, requireYouth, async (req, res) => {
+  const validated = validateYouthProfile(req.body);
+  if (validated.error) {
+    return res.status(400).json({ message: validated.error });
+  }
+
+  try {
+    const profile = validated.value;
+    req.user.name = profile.name;
+    req.user.profileInfo = {
+      bio: req.user.profileInfo?.bio,
+      ageGroup: profile.ageGroup,
+      preferredLanguage: profile.preferredLanguage,
+      location: profile.location,
+      interests: profile.interests,
+      avatar: profile.avatar,
+    };
+    await req.user.save();
+
+    return res.status(200).json({
+      message: 'Youth profile saved successfully.',
+      profile: youthProfileResponse(req.user),
+    });
+  } catch (error) {
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ message: error.message });
+    }
+    console.error('Error saving youth profile:', error);
+    return res.status(500).json({ message: 'Youth profile could not be saved.' });
   }
 });
 

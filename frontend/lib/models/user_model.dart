@@ -4,6 +4,7 @@ class User {
   final String email;
   final String role;
   final ProfileInfo profileInfo;
+  final bool profileComplete;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -13,6 +14,7 @@ class User {
     required this.email,
     required this.role,
     required this.profileInfo,
+    this.profileComplete = false,
     this.createdAt,
     this.updatedAt,
   });
@@ -24,8 +26,13 @@ class User {
       email: json['email'] ?? '',
       role: json['role'] ?? 'youth',
       profileInfo: ProfileInfo.fromJson(json['profileInfo'] ?? {}),
-      createdAt: json['createdAt'] != null ? DateTime.parse(json['createdAt']) : null,
-      updatedAt: json['updatedAt'] != null ? DateTime.parse(json['updatedAt']) : null,
+      profileComplete: json['profileComplete'] == true,
+      createdAt: json['createdAt'] != null
+          ? DateTime.parse(json['createdAt'])
+          : null,
+      updatedAt: json['updatedAt'] != null
+          ? DateTime.parse(json['updatedAt'])
+          : null,
     );
   }
 
@@ -35,6 +42,7 @@ class User {
       'email': email,
       'role': role,
       'profileInfo': profileInfo.toJson(),
+      'profileComplete': profileComplete,
     };
   }
 }
@@ -44,12 +52,16 @@ class ProfileInfo {
   final String? avatar;
   final List<String> interests;
   final String? location;
+  final String? ageGroup;
+  final String? preferredLanguage;
 
   ProfileInfo({
     this.bio,
     this.avatar,
     this.interests = const [],
     this.location,
+    this.ageGroup,
+    this.preferredLanguage,
   });
 
   factory ProfileInfo.fromJson(Map<String, dynamic> json) {
@@ -58,6 +70,8 @@ class ProfileInfo {
       avatar: json['avatar'],
       interests: List<String>.from(json['interests'] ?? []),
       location: json['location'],
+      ageGroup: json['ageGroup'],
+      preferredLanguage: json['preferredLanguage'],
     );
   }
 
@@ -67,6 +81,8 @@ class ProfileInfo {
       'avatar': avatar,
       'interests': interests,
       'location': location,
+      'ageGroup': ageGroup,
+      'preferredLanguage': preferredLanguage,
     };
   }
 }

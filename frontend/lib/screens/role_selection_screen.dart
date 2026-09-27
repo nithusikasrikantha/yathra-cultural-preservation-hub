@@ -3,7 +3,11 @@ import '../services/auth_service.dart';
 import 'home_screen.dart';
 
 class RoleSelectionScreen extends StatefulWidget {
-  const RoleSelectionScreen({super.key, required this.authService, required this.initialUser});
+  const RoleSelectionScreen({
+    super.key,
+    required this.authService,
+    required this.initialUser,
+  });
 
   final AuthService authService;
   final Map<String, dynamic> initialUser;
@@ -23,6 +27,17 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
     try {
       await widget.authService.updateRole(role);
       if (!mounted) return;
+
+      if (role == 'youth') {
+        final profile = await widget.authService.getYouthProfile();
+        if (!mounted) return;
+        Navigator.pushReplacementNamed(
+          context,
+          profile['profileComplete'] == true ? '/youth-feed' : '/youth-profile',
+        );
+        return;
+      }
+
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const HomeScreen()),
@@ -30,7 +45,9 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))),
+        SnackBar(
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
+        ),
       );
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
@@ -46,16 +63,31 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Choose your role', style: Theme.of(context).textTheme.headlineMedium),
+            Text(
+              'Choose your role',
+              style: Theme.of(context).textTheme.headlineMedium,
+            ),
             const SizedBox(height: 10),
-            Text('Welcome, ${widget.initialUser['name'] ?? ''}. Select how you would like to take part in YATHRA.'),
+            Text(
+              'Welcome, ${widget.initialUser['name'] ?? ''}. Select how you would like to take part in YATHRA.',
+            ),
             const SizedBox(height: 28),
-            _roleOption('elder', 'Elder', 'Share stories, traditions, and cultural wisdom.'),
+            _roleOption(
+              'elder',
+              'Elder',
+              'Share stories, traditions, and cultural wisdom.',
+            ),
             const SizedBox(height: 14),
-            _roleOption('youth', 'Youth', 'Discover and preserve cultural heritage.'),
+            _roleOption(
+              'youth',
+              'Youth',
+              'Discover and preserve cultural heritage.',
+            ),
             const Spacer(),
             ElevatedButton(
-              onPressed: _selectedRole == null || _isSubmitting ? null : _continue,
+              onPressed: _selectedRole == null || _isSubmitting
+                  ? null
+                  : _continue,
               child: Text(_isSubmitting ? 'Saving...' : 'Continue'),
             ),
           ],
@@ -72,19 +104,36 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
       child: Container(
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
-          color: selected ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.08) : Colors.white.withValues(alpha: 0.5),
-          border: Border.all(color: selected ? Theme.of(context).colorScheme.primary : Colors.grey.withValues(alpha: 0.4)),
+          color: selected
+              ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.08)
+              : Colors.white.withValues(alpha: 0.5),
+          border: Border.all(
+            color: selected
+                ? Theme.of(context).colorScheme.primary
+                : Colors.grey.withValues(alpha: 0.4),
+          ),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
           children: [
-            Icon(selected ? Icons.radio_button_checked : Icons.radio_button_off, color: Theme.of(context).colorScheme.primary),
+            Icon(
+              selected ? Icons.radio_button_checked : Icons.radio_button_off,
+              color: Theme.of(context).colorScheme.primary,
+            ),
             const SizedBox(width: 14),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              Text(description),
-            ])),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(description),
+                ],
+              ),
+            ),
           ],
         ),
       ),
