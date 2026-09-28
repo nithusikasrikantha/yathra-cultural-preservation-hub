@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'theme/app_theme.dart';
 import 'screens/splash_screen.dart';
 
+import 'pages/explore_page.dart';
 import 'pages/share_story_page.dart';
 import 'pages/youth_feed_page.dart';
 import 'pages/youth_profile_page.dart';
@@ -25,6 +26,7 @@ class YathraApp extends StatelessWidget {
         '/youth-profile': (context) => const YouthProfilePage(),
         '/youth-saved': (context) => const YouthSavedPostsPage(),
         '/share-story': (context) => const ShareStoryPage(),
+        '/explore': (context) => const ExplorePage(),
       },
       home: const SplashScreen(),
     );
