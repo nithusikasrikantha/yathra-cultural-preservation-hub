@@ -1,9 +1,12 @@
 ﻿import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
+import '../screens/login_screen.dart';
 
 class YouthProfilePage extends StatefulWidget {
-  const YouthProfilePage({super.key});
+  const YouthProfilePage({super.key, this.onProfileSaved});
+
+  final ValueChanged<Map<String, dynamic>>? onProfileSaved;
 
   @override
   State<YouthProfilePage> createState() => _YouthProfilePageState();
@@ -35,6 +38,7 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
   String? _loadError;
   bool _isLoading = true;
   bool _isSaving = false;
+  bool _profileComplete = false;
 
   static const Color _bgColor = Color(0xFFF8F3EA);
   static const Color _primaryBrown = Color(0xFF6B4226);
@@ -93,6 +97,7 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
             ? profile['avatar'] as String
             : null;
         _avatarController.text = _avatar ?? '';
+        _profileComplete = profile['profileComplete'] == true;
         _isLoading = false;
       });
     } catch (error) {
@@ -115,7 +120,7 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
 
     setState(() => _isSaving = true);
     try {
-      await _authService.updateYouthProfile(
+      final profile = await _authService.updateYouthProfile(
         name: _nameController.text.trim(),
         ageGroup: _ageController.text.trim(),
         preferredLanguage: _selectedLanguage!,
@@ -126,8 +131,9 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
             : _avatarController.text.trim(),
       );
       if (!mounted) return;
+      setState(() => _profileComplete = profile['profileComplete'] == true);
+      widget.onProfileSaved?.call(profile);
       _showSnackBar('Youth profile saved successfully.');
-      Navigator.pushReplacementNamed(context, '/youth-feed');
     } catch (error) {
       if (!mounted) return;
       _showSnackBar(_errorMessage(error));
@@ -164,6 +170,36 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
       );
   }
 
+  Future<void> _logout() async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Log out?'),
+        content: const Text(
+          'You will need to log in again to access your Youth Hub.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
+    if (shouldLogout != true || !mounted) return;
+
+    await _authService.logout();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute<void>(builder: (context) => const LoginScreen()),
+      (route) => false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -173,7 +209,7 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
         foregroundColor: Colors.white,
         centerTitle: true,
         title: const Text(
-          'Youth Profile',
+          'My Youth Profile',
           style: TextStyle(
             fontSize: 22,
             fontWeight: FontWeight.bold,
@@ -275,7 +311,7 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Create your youth profile and choose the cultural topics you want to explore.',
+                  'Manage your details and choose the cultural topics you want to explore.',
                   style: TextStyle(
                     fontSize: 16,
                     color: _darkBrown,
@@ -283,6 +319,30 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
                     height: 1.4,
                   ),
                 ),
+                if (!_profileComplete) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF1E5D5),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.info_outline, color: _primaryBrown),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Complete the required fields and select at least one interest to finish your profile.',
+                            style: TextStyle(color: _darkBrown, height: 1.4),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 24),
                 Center(
                   child: Semantics(
@@ -447,12 +507,43 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
                             ),
                           )
                         : const Text(
-                            'Save and Continue',
+                            'Save Profile',
                             style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Card(
+                  color: Colors.white,
+                  margin: EdgeInsets.zero,
+                  child: Column(
+                    children: [
+                      ListTile(
+                        leading: const Icon(
+                          Icons.bookmarks_outlined,
+                          color: _primaryBrown,
+                        ),
+                        title: const Text('Saved Stories'),
+                        subtitle: const Text(
+                          'View stories saved on this device',
+                        ),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () =>
+                            Navigator.of(context).pushNamed('/youth-saved'),
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
+                        leading: const Icon(
+                          Icons.logout,
+                          color: Colors.redAccent,
+                        ),
+                        title: const Text('Logout'),
+                        onTap: _isSaving ? null : _logout,
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 20),

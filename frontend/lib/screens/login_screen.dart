@@ -41,7 +41,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final role = user['role'] as String? ?? '';
 
       if (role == 'youth') {
-        await Navigator.pushReplacementNamed(context, '/youth-feed');
+        await Navigator.pushReplacementNamed(context, '/youth-hub');
         return;
       }
 

@@ -6,7 +6,7 @@ import 'theme/app_theme.dart';
 
 import 'pages/explore_page.dart';
 import 'pages/share_story_page.dart';
-import 'pages/youth_feed_page.dart';
+import 'pages/youth_hub_shell.dart';
 import 'pages/youth_profile_page.dart';
 import 'pages/youth_saved_posts_page.dart';
 
@@ -26,7 +26,8 @@ class YathraApp extends StatelessWidget {
       routes: {
         '/login': (context) => const LoginScreen(),
         '/register': (context) => const RegisterScreen(),
-        '/youth-feed': (context) => const YouthFeedPage(),
+        '/youth-hub': (context) => const YouthHubShell(),
+        '/youth-feed': (context) => const YouthHubShell(),
         '/youth-profile': (context) => const YouthProfilePage(),
         '/youth-saved': (context) => const YouthSavedPostsPage(),
         '/share-story': (context) => const ShareStoryPage(),

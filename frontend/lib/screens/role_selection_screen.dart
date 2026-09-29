@@ -23,6 +23,12 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
     try {
       await widget.authService.updateRole(role);
       if (!mounted) return;
+
+      if (role == 'youth') {
+        Navigator.pushReplacementNamed(context, '/youth-hub');
+        return;
+      }
+
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const HomeScreen()),
