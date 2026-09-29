@@ -14,11 +14,16 @@ class ApiService {
       );
       return _handleResponse(response);
     } catch (e) {
+      if (e is Exception && e.toString().startsWith('Exception: ')) rethrow;
       throw Exception('GET request failed: $e');
     }
   }
 
-  Future<dynamic> post(String endpoint, {dynamic body, Map<String, String>? headers}) async {
+  Future<dynamic> post(
+    String endpoint, {
+    dynamic body,
+    Map<String, String>? headers,
+  }) async {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl$endpoint'),
@@ -32,7 +37,11 @@ class ApiService {
     }
   }
 
-  Future<dynamic> put(String endpoint, {dynamic body, Map<String, String>? headers}) async {
+  Future<dynamic> put(
+    String endpoint, {
+    dynamic body,
+    Map<String, String>? headers,
+  }) async {
     try {
       final response = await http.put(
         Uri.parse('$baseUrl$endpoint'),

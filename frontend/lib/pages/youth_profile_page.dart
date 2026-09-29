@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
 
@@ -15,6 +15,7 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _ageController = TextEditingController();
   final TextEditingController _locationController = TextEditingController();
+  final TextEditingController _avatarController = TextEditingController();
 
   static const List<String> _languages = ['Tamil', 'Sinhala', 'English'];
   static const List<String> _interests = [
@@ -50,6 +51,7 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
     _nameController.dispose();
     _ageController.dispose();
     _locationController.dispose();
+    _avatarController.dispose();
     super.dispose();
   }
 
@@ -90,6 +92,7 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
         _avatar = profile['avatar'] is String
             ? profile['avatar'] as String
             : null;
+        _avatarController.text = _avatar ?? '';
         _isLoading = false;
       });
     } catch (error) {
@@ -118,7 +121,9 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
         preferredLanguage: _selectedLanguage!,
         location: _locationController.text.trim(),
         interests: _selectedInterests.toList(growable: false),
-        avatar: _avatar,
+        avatar: _avatarController.text.trim().isEmpty
+            ? null
+            : _avatarController.text.trim(),
       );
       if (!mounted) return;
       _showSnackBar('Youth profile saved successfully.');
@@ -300,6 +305,28 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
                       ),
                     ),
                   ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _avatarController,
+                  enabled: !_isSaving,
+                  keyboardType: TextInputType.url,
+                  textInputAction: TextInputAction.next,
+                  decoration: _buildInputDecoration(
+                    label: 'Avatar image URL (optional)',
+                    hint: 'https://example.com/avatar.jpg',
+                  ),
+                  validator: (value) {
+                    final url = value?.trim() ?? '';
+                    if (url.isEmpty) return null;
+                    final uri = Uri.tryParse(url);
+                    if (uri == null ||
+                        !uri.hasScheme ||
+                        !['http', 'https'].contains(uri.scheme)) {
+                      return 'Enter a valid HTTP or HTTPS URL.';
+                    }
+                    return null;
+                  },
                 ),
                 const SizedBox(height: 28),
                 _buildSectionLabel('Name'),

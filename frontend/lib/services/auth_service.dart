@@ -1,4 +1,4 @@
-import '../config/api_config.dart';
+﻿import '../config/api_config.dart';
 import '../utils/api_endpoints.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'api_service.dart';
@@ -28,7 +28,7 @@ class AuthService {
     required String name,
     required String email,
     required String password,
-    String role = 'youth',
+    required String role,
   }) async {
     final result = await _apiService.post(
       ApiEndpoints.register,
