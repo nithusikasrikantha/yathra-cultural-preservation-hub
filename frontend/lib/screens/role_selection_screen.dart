@@ -29,12 +29,7 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
       if (!mounted) return;
 
       if (role == 'youth') {
-        final profile = await widget.authService.getYouthProfile();
-        if (!mounted) return;
-        Navigator.pushReplacementNamed(
-          context,
-          profile['profileComplete'] == true ? '/youth-feed' : '/youth-profile',
-        );
+        Navigator.pushReplacementNamed(context, '/youth-hub');
         return;
       }
 
