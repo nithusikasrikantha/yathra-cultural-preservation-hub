@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
@@ -161,7 +161,7 @@ const validateYouthProfile = (body) => {
 // @access  Public
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password } = req.body || {};
+    const { name, email, password, role } = req.body || {};
 
     if (typeof name !== 'string' || !name.trim()) {
       return res.status(400).json({ message: 'Name is required.' });
@@ -179,6 +179,9 @@ router.post('/register', async (req, res) => {
     if (password.length < 8 || password.length > 128) {
       return res.status(400).json({ message: 'Password must be between 8 and 128 characters.' });
     }
+    if (!['elder', 'youth'].includes(role)) {
+      return res.status(400).json({ message: 'Please select Elder or Youth.' });
+    }
 
     const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
@@ -190,6 +193,7 @@ router.post('/register', async (req, res) => {
       name: name.trim(),
       email: normalizedEmail,
       passwordHash,
+      role,
     });
 
     return res.status(201).json({
