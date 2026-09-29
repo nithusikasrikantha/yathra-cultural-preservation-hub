@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../pages/explore_page.dart';
 import '../widgets/content_card.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -10,19 +11,19 @@ class HomeScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text(
           'YATHRA',
-          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                letterSpacing: 2,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.headlineMedium?.copyWith(letterSpacing: 2),
         ),
         actions: [
-          IconButton(icon: const Icon(Icons.notifications_none), onPressed: () {}),
+          IconButton(
+            icon: const Icon(Icons.notifications_none),
+            onPressed: () {},
+          ),
           IconButton(icon: const Icon(Icons.bookmark_border), onPressed: () {}),
           const Padding(
             padding: EdgeInsets.only(right: 16.0),
-            child: CircleAvatar(
-              radius: 15,
-              backgroundColor: Color(0xFFD8CAB8),
-            ),
+            child: CircleAvatar(radius: 15, backgroundColor: Color(0xFFD8CAB8)),
           ),
         ],
         backgroundColor: Colors.transparent,
@@ -61,7 +62,8 @@ class HomeScreen extends StatelessWidget {
                   author: 'Appaiah (Jaffna)',
                   time: '1h ago',
                   title: 'Traditional Palmyra Sweet Treats',
-                  description: 'Using the sweet syrup extracted during the dry season...',
+                  description:
+                      'Using the sweet syrup extracted during the dry season...',
                   likes: 142,
                   comments: 18,
                   hasVideo: true,
@@ -70,7 +72,8 @@ class HomeScreen extends StatelessWidget {
                   author: 'Gunasekara (Kandy)',
                   time: '3h ago',
                   title: 'Brass Crafting Secrets of Kandy',
-                  description: 'The art of metalwork has been in our family for five generations...',
+                  description:
+                      'The art of metalwork has been in our family for five generations...',
                   likes: 89,
                   comments: 5,
                   hasVideo: false,
@@ -85,28 +88,50 @@ class HomeScreen extends StatelessWidget {
         type: BottomNavigationBarType.fixed,
         selectedItemColor: Theme.of(context).colorScheme.primary,
         unselectedItemColor: Colors.grey,
+        onTap: (index) {
+          if (index == 1) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const ExplorePage()),
+            );
+          }
+        },
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.explore_outlined), label: 'Explore'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.explore_outlined),
+            label: 'Explore',
+          ),
           BottomNavigationBarItem(icon: Icon(Icons.map_outlined), label: 'Map'),
-          BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Profile'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person_outline),
+            label: 'Profile',
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildCategoryChip(BuildContext context, String label, bool isSelected) {
+  Widget _buildCategoryChip(
+    BuildContext context,
+    String label,
+    bool isSelected,
+  ) {
     return Container(
       margin: const EdgeInsets.only(right: 8),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: isSelected ? Theme.of(context).colorScheme.primary : Colors.white.withOpacity(0.5),
+        color: isSelected
+            ? Theme.of(context).colorScheme.primary
+            : Colors.white.withOpacity(0.5),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
         label,
         style: TextStyle(
-          color: isSelected ? Colors.white : Theme.of(context).colorScheme.primary,
+          color: isSelected
+              ? Colors.white
+              : Theme.of(context).colorScheme.primary,
           fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
         ),
       ),
