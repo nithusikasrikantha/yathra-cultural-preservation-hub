@@ -1,7 +1,7 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import 'home_screen.dart';
 import 'register_screen.dart';
-import 'role_selection_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -38,16 +38,24 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
 
       final user = Map<String, dynamic>.from(result['user'] as Map);
-      if (user['role'] == 'youth') {
+      final role = user['role'] as String? ?? '';
+
+      if (role == 'youth') {
         await Navigator.pushReplacementNamed(context, '/youth-hub');
         return;
       }
 
-      await Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) =>
-              RoleSelectionScreen(authService: _authService, initialUser: user),
+      if (role == 'elder') {
+        await Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const HomeScreen()),
+        );
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This account does not have a supported role.'),
         ),
       );
     } catch (error) {
