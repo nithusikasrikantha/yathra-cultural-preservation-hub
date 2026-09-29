@@ -253,6 +253,42 @@ class _YouthFeedPageState extends State<YouthFeedPage> {
         ],
       ),
       body: SafeArea(child: _buildBody()),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: 0,
+        type: BottomNavigationBarType.fixed,
+        selectedItemColor: _primaryBrown,
+        unselectedItemColor: Colors.grey.shade600,
+        backgroundColor: Colors.white,
+        onTap: (index) {
+          if (index == 1) {
+            Navigator.of(context).pushNamed('/explore');
+          } else if (index == 3) {
+            Navigator.of(context).pushNamed('/youth-profile');
+          }
+        },
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.home_outlined),
+            activeIcon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.explore_outlined),
+            activeIcon: Icon(Icons.explore),
+            label: 'Explore',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.map_outlined),
+            activeIcon: Icon(Icons.map),
+            label: 'Map',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person_outline),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+        ],
+      ),
     );
   }
 

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import 'home_screen.dart';
 import 'register_screen.dart';
-import 'role_selection_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -36,19 +36,34 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final result = await _authService.login(email: email, password: password);
       if (!mounted) return;
-      await Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => RoleSelectionScreen(
-            authService: _authService,
-            initialUser: Map<String, dynamic>.from(result['user'] as Map),
-          ),
+
+      final user = Map<String, dynamic>.from(result['user'] as Map);
+      final role = user['role'] as String? ?? '';
+
+      if (role == 'youth') {
+        await Navigator.pushReplacementNamed(context, '/youth-feed');
+        return;
+      }
+
+      if (role == 'elder') {
+        await Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const HomeScreen()),
+        );
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This account does not have a supported role.'),
         ),
       );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))),
+        SnackBar(
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
+        ),
       );
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
@@ -66,14 +81,22 @@ class _LoginScreenState extends State<LoginScreen> {
             children: [
               Text('YATHRA', style: Theme.of(context).textTheme.displayLarge),
               const SizedBox(height: 40),
-              Text('Welcome Back', style: Theme.of(context).textTheme.headlineMedium),
+              Text(
+                'Welcome Back',
+                style: Theme.of(context).textTheme.headlineMedium,
+              ),
               const SizedBox(height: 10),
-              Text('Login to continue your cultural journey', style: Theme.of(context).textTheme.bodyMedium),
+              Text(
+                'Login to continue your cultural journey',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
               const SizedBox(height: 40),
               TextField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(hintText: 'Email / Phone Number'),
+                decoration: const InputDecoration(
+                  hintText: 'Email / Phone Number',
+                ),
               ),
               const SizedBox(height: 20),
               TextField(
@@ -85,7 +108,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 alignment: Alignment.centerRight,
                 child: TextButton(
                   onPressed: () {},
-                  child: const Text('Forgot Password?', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  child: const Text(
+                    'Forgot Password?',
+                    style: TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
                 ),
               ),
               const SizedBox(height: 20),
@@ -113,7 +139,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   minimumSize: const Size(double.infinity, 50),
                   foregroundColor: Theme.of(context).colorScheme.primary,
                   side: BorderSide(color: Colors.grey.withValues(alpha: 0.5)),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
               ),
               const SizedBox(height: 40),
@@ -122,8 +150,16 @@ class _LoginScreenState extends State<LoginScreen> {
                 children: [
                   const Text("Don't have an account? "),
                   GestureDetector(
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const RegisterScreen())),
-                    child: const Text('Register', style: TextStyle(fontWeight: FontWeight.bold)),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const RegisterScreen(),
+                      ),
+                    ),
+                    child: const Text(
+                      'Register',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
                   ),
                 ],
               ),
@@ -131,7 +167,10 @@ class _LoginScreenState extends State<LoginScreen> {
               Container(
                 width: 80,
                 height: 80,
-                decoration: const BoxDecoration(color: Color(0xFFD8CAB8), shape: BoxShape.circle),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFD8CAB8),
+                  shape: BoxShape.circle,
+                ),
               ),
             ],
           ),
