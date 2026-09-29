@@ -39,15 +39,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       final user = Map<String, dynamic>.from(result['user'] as Map);
       if (user['role'] == 'youth') {
-        final responseComplete = user['profileComplete'];
-        final profileComplete = responseComplete is bool
-            ? responseComplete
-            : (await _authService.getYouthProfile())['profileComplete'] == true;
-        if (!mounted) return;
-        await Navigator.pushReplacementNamed(
-          context,
-          profileComplete ? '/youth-feed' : '/youth-profile',
-        );
+        await Navigator.pushReplacementNamed(context, '/youth-hub');
         return;
       }
 
