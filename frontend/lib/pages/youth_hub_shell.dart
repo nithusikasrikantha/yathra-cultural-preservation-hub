@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
-import 'youth_feed_page.dart';
+import 'explore_page.dart';
 import 'youth_heritage_map_page.dart';
 import 'youth_home_page.dart';
 import 'youth_profile_page.dart';
@@ -50,7 +50,7 @@ class _YouthHubShellState extends State<YouthHubShell> {
             onExplore: () => _selectTab(1),
             onProfile: () => _selectTab(3),
           ),
-          const YouthFeedPage(),
+          const ExplorePage(),
           const YouthHeritageMapPage(),
           YouthProfilePage(
             onProfileSaved: (profile) {
@@ -65,14 +65,24 @@ class _YouthHubShellState extends State<YouthHubShell> {
         selectedIndex: _currentIndex,
         onDestinationSelected: _selectTab,
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), label: 'Home'),
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: 'Home',
+          ),
           NavigationDestination(
             icon: Icon(Icons.explore_outlined),
+            selectedIcon: Icon(Icons.explore),
             label: 'Explore',
           ),
-          NavigationDestination(icon: Icon(Icons.map_outlined), label: 'Map'),
+          NavigationDestination(
+            icon: Icon(Icons.map_outlined),
+            selectedIcon: Icon(Icons.map),
+            label: 'Map',
+          ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person),
             label: 'Profile',
           ),
         ],
