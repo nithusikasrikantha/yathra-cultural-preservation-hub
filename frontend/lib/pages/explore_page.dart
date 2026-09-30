@@ -185,8 +185,13 @@ class _ExplorePageState extends State<ExplorePage> {
         backgroundColor: Colors.white,
         onTap: (index) {
           if (index == 0) {
-            // Home tapped -> Pop back to Home Page
-            Navigator.of(context).pop();
+            if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            } else {
+              Navigator.of(context).pushReplacementNamed('/youth-feed');
+            }
+          } else if (index == 3) {
+            Navigator.of(context).pushNamed('/youth-profile');
           }
         },
         items: const [

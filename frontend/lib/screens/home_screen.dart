@@ -94,6 +94,8 @@ class HomeScreen extends StatelessWidget {
               context,
               MaterialPageRoute(builder: (context) => const ExplorePage()),
             );
+          } else if (index == 3) {
+            Navigator.pushNamed(context, '/youth-profile');
           }
         },
         items: const [
