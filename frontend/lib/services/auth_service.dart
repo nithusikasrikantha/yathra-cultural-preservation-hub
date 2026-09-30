@@ -111,6 +111,20 @@ class AuthService {
     );
   }
 
+  Future<Map<String, dynamic>> getElderProfile() async {
+    try {
+      final result = await _apiService.get(
+        ApiEndpoints.elderProfile,
+        headers: await _authenticatedHeaders(),
+      );
+
+      if (result is Map<String, dynamic> && result['profile'] is Map) {
+        return Map<String, dynamic>.from(result['profile'] as Map);
+      }
+    } catch (_) {}
+    return {};
+  }
+
   Future<Map<String, dynamic>> updateYouthProfile({
     required String name,
     required String ageGroup,
