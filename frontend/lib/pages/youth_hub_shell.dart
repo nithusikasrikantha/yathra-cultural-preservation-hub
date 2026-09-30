@@ -1,13 +1,22 @@
 import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
+import 'elder/elder_home_page.dart';
+import 'elder/elder_profile_page.dart';
 import 'explore_page.dart';
 import 'youth_heritage_map_page.dart';
 import 'youth_home_page.dart';
 import 'youth_profile_page.dart';
 
 class YouthHubShell extends StatefulWidget {
-  const YouthHubShell({super.key});
+  const YouthHubShell({
+    super.key,
+    this.userRole = 'youth',
+    this.userName = 'Kamala Devi',
+  });
+
+  final String userRole;
+  final String userName;
 
   @override
   State<YouthHubShell> createState() => _YouthHubShellState();
@@ -17,21 +26,37 @@ class _YouthHubShellState extends State<YouthHubShell> {
   final AuthService _authService = AuthService();
   int _currentIndex = 0;
   bool? _profileComplete;
+  String _role = 'youth';
+  String _name = 'Kamala Devi';
 
   @override
   void initState() {
     super.initState();
+    _role = widget.userRole;
+    _name = widget.userName;
     _loadProfileStatus();
   }
 
   Future<void> _loadProfileStatus() async {
     try {
-      final profile = await _authService.getYouthProfile();
-      if (mounted) {
-        setState(() => _profileComplete = profile['profileComplete'] == true);
+      if (_role == 'elder') {
+        final profile = await _authService.getElderProfile();
+        if (mounted && profile['name'] != null) {
+          setState(() {
+            _name = profile['name'];
+          });
+        }
+      } else {
+        final profile = await _authService.getYouthProfile();
+        if (mounted) {
+          setState(() {
+            _profileComplete = profile['profileComplete'] == true;
+            if (profile['name'] != null) _name = profile['name'];
+          });
+        }
       }
     } catch (_) {
-      // Profile status is supplementary; the Youth Hub remains available.
+      // Supplementary profile load
     }
   }
 
@@ -41,24 +66,30 @@ class _YouthHubShellState extends State<YouthHubShell> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isElder = _role == 'elder';
+
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
         children: [
-          YouthHomePage(
-            profileComplete: _profileComplete,
-            onExplore: () => _selectTab(1),
-            onProfile: () => _selectTab(3),
-          ),
+          isElder
+              ? ElderHomePage(userName: _name)
+              : YouthHomePage(
+                  profileComplete: _profileComplete,
+                  onExplore: () => _selectTab(1),
+                  onProfile: () => _selectTab(3),
+                ),
           const ExplorePage(),
           const YouthHeritageMapPage(),
-          YouthProfilePage(
-            onProfileSaved: (profile) {
-              setState(
-                () => _profileComplete = profile['profileComplete'] == true,
-              );
-            },
-          ),
+          isElder
+              ? ElderProfilePage(userName: _name)
+              : YouthProfilePage(
+                  onProfileSaved: (profile) {
+                    setState(
+                      () => _profileComplete = profile['profileComplete'] == true,
+                    );
+                  },
+                ),
         ],
       ),
       bottomNavigationBar: NavigationBar(

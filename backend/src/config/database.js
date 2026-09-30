@@ -1,4 +1,11 @@
 const mongoose = require('mongoose');
+const dns = require('dns');
+
+// Force Node.js to use Google public DNS (8.8.8.8) to resolve SRV records on Windows
+try {
+  dns.setServers(['8.8.8.8', '8.8.4.4']);
+  dns.setDefaultResultOrder('ipv4first');
+} catch (_) {}
 
 const connectDB = async (uri) => {
   try {
