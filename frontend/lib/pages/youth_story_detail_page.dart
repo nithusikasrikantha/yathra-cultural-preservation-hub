@@ -3,11 +3,17 @@ import 'package:flutter/material.dart';
 import '../models/story.dart';
 import '../services/bookmark_service.dart';
 import '../services/story_service.dart';
+import '../services/youth_dummy_content_store.dart';
 
 class YouthStoryDetailPage extends StatefulWidget {
-  const YouthStoryDetailPage({super.key, required this.storyId});
+  const YouthStoryDetailPage({
+    super.key,
+    required this.storyId,
+    this.preloadedStory,
+  });
 
   final String storyId;
+  final Story? preloadedStory;
 
   @override
   State<YouthStoryDetailPage> createState() => _YouthStoryDetailPageState();
@@ -20,6 +26,10 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
 
   final StoryService _storyService = const StoryService();
   final BookmarkService _bookmarkService = BookmarkService.instance;
+  final YouthDummyContentStore _dummyStore = YouthDummyContentStore.instance;
+
+  bool get _isDummyStory =>
+      widget.preloadedStory != null && _dummyStore.isDummyId(widget.storyId);
 
   Story? _story;
   bool _bookmarksReady = false;
@@ -30,14 +40,23 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
   @override
   void initState() {
     super.initState();
-    _bookmarkService.addListener(_handleBookmarksChanged);
-    _initializeBookmarks();
+    if (_isDummyStory) {
+      _dummyStore.addListener(_handleBookmarksChanged);
+      _bookmarksReady = true;
+    } else {
+      _bookmarkService.addListener(_handleBookmarksChanged);
+      _initializeBookmarks();
+    }
     _loadStory();
   }
 
   @override
   void dispose() {
-    _bookmarkService.removeListener(_handleBookmarksChanged);
+    if (_isDummyStory) {
+      _dummyStore.removeListener(_handleBookmarksChanged);
+    } else {
+      _bookmarkService.removeListener(_handleBookmarksChanged);
+    }
     super.dispose();
   }
 
@@ -59,11 +78,15 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
   void _handleBookmarksChanged() {
     if (!mounted) return;
     setState(() {
-      _bookmarksReady = _bookmarkService.isLoaded;
+      _bookmarksReady = _isDummyStory || _bookmarkService.isLoaded;
     });
   }
 
   Future<void> _toggleBookmark() async {
+    if (_isDummyStory) {
+      _dummyStore.toggleBookmark(widget.storyId);
+      return;
+    }
     try {
       await _bookmarkService.toggle(widget.storyId);
     } catch (_) {
@@ -75,6 +98,15 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
   }
 
   Future<void> _loadStory() async {
+    if (_isDummyStory) {
+      setState(() {
+        _story = widget.preloadedStory;
+        _isLoading = false;
+        _isNotFound = false;
+        _errorMessage = null;
+      });
+      return;
+    }
     setState(() {
       _isLoading = true;
       _isNotFound = false;
@@ -122,20 +154,18 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
             onPressed: _story != null && _bookmarksReady
                 ? _toggleBookmark
                 : null,
-            tooltip: _bookmarkService.isBookmarked(widget.storyId)
-                ? 'Remove bookmark'
-                : 'Save story',
-            icon: Icon(
-              _bookmarkService.isBookmarked(widget.storyId)
-                  ? Icons.bookmark
-                  : Icons.bookmark_border,
-            ),
+            tooltip: _isBookmarked ? 'Remove bookmark' : 'Save story',
+            icon: Icon(_isBookmarked ? Icons.bookmark : Icons.bookmark_border),
           ),
         ],
       ),
       body: SafeArea(child: _buildBody()),
     );
   }
+
+  bool get _isBookmarked => _isDummyStory
+      ? _dummyStore.isBookmarked(widget.storyId)
+      : _bookmarkService.isBookmarked(widget.storyId);
 
   Widget _buildBody() {
     if (_isLoading) {

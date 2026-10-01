@@ -3,17 +3,20 @@ import 'package:flutter/material.dart';
 import '../models/story.dart';
 import '../services/bookmark_service.dart';
 import '../services/story_service.dart';
+import '../services/youth_dummy_content_store.dart';
 import '../widgets/youth_story_card.dart';
 import 'youth_story_detail_page.dart';
 
 class YouthHomePage extends StatefulWidget {
   const YouthHomePage({
     super.key,
+    required this.userName,
     required this.profileComplete,
     required this.onExplore,
     required this.onProfile,
   });
 
+  final String userName;
   final bool? profileComplete;
   final VoidCallback onExplore;
   final VoidCallback onProfile;
@@ -23,19 +26,16 @@ class YouthHomePage extends StatefulWidget {
 }
 
 class _YouthHomePageState extends State<YouthHomePage> {
-  static const Color _backgroundColor = Color(0xFFF8F3EA);
-  static const Color _primaryBrown = Color(0xFF6B4226);
-  static const Color _darkBrown = Color(0xFF4A2C1A);
-  static const List<String> _categories = [
-    'Traditional Story',
-    'Recipe',
-    'Song',
-    'Local History',
-  ];
+  static const Color _backgroundColor = Color(0xFFF9F5EC);
+  static const Color _primaryBrown = Color(0xFF4A2C1A);
+  static const Color _accentBrown = Color(0xFF6B4226);
+  static const Color _cardBackground = Color(0xFFFFFDF8);
 
   final StoryService _storyService = const StoryService();
   final BookmarkService _bookmarkService = BookmarkService.instance;
+  final YouthDummyContentStore _dummyStore = YouthDummyContentStore.instance;
   List<Story> _stories = const [];
+  bool _showingDummyStories = false;
   bool _isLoading = true;
   bool _bookmarksReady = false;
   String? _error;
@@ -44,12 +44,14 @@ class _YouthHomePageState extends State<YouthHomePage> {
   void initState() {
     super.initState();
     _bookmarkService.addListener(_onBookmarksChanged);
+    _dummyStore.addListener(_onBookmarksChanged);
     _load();
   }
 
   @override
   void dispose() {
     _bookmarkService.removeListener(_onBookmarksChanged);
+    _dummyStore.removeListener(_onBookmarksChanged);
     super.dispose();
   }
 
@@ -63,12 +65,15 @@ class _YouthHomePageState extends State<YouthHomePage> {
       _error = null;
     });
     try {
-      await _bookmarkService.load();
       final page = await _storyService.fetchStories(page: 1, limit: 4);
+      if (page.items.isNotEmpty) {
+        await _bookmarkService.load();
+      }
       if (!mounted) return;
       setState(() {
-        _bookmarksReady = true;
-        _stories = page.items;
+        _bookmarksReady = page.items.isNotEmpty;
+        _showingDummyStories = page.items.isEmpty;
+        _stories = page.items.isEmpty ? _dummyStore.stories : page.items;
         _isLoading = false;
       });
     } catch (_) {
@@ -80,9 +85,13 @@ class _YouthHomePageState extends State<YouthHomePage> {
     }
   }
 
-  Future<void> _toggleBookmark(String storyId) async {
+  Future<void> _toggleBookmark(Story story) async {
+    if (_dummyStore.isDummyId(story.id)) {
+      _dummyStore.toggleBookmark(story.id);
+      return;
+    }
     try {
-      await _bookmarkService.toggle(storyId);
+      await _bookmarkService.toggle(story.id);
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -91,12 +100,44 @@ class _YouthHomePageState extends State<YouthHomePage> {
     }
   }
 
-  void _openStory(String storyId) {
+  void _openStory(Story story) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (context) => YouthStoryDetailPage(storyId: storyId),
+        builder: (_) => YouthStoryDetailPage(
+          storyId: story.id,
+          preloadedStory: _dummyStore.isDummyId(story.id) ? story : null,
+        ),
       ),
     );
+  }
+
+  void _showDummyComments() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (context) => const SafeArea(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Row(
+            children: [
+              Icon(Icons.chat_bubble_outline_rounded, color: _accentBrown),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Comments are demo-only for temporary Youth content.',
+                  style: TextStyle(fontSize: 16, height: 1.4),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String get _greetingName {
+    final normalizedName = widget.userName.trim();
+    if (normalizedName.isEmpty) return 'Explorer';
+    return normalizedName.split(RegExp(r'\s+')).first;
   }
 
   @override
@@ -104,173 +145,249 @@ class _YouthHomePageState extends State<YouthHomePage> {
     return Scaffold(
       backgroundColor: _backgroundColor,
       appBar: AppBar(
-        title: Text(
-          'YATHRA',
-          style: Theme.of(
-            context,
-          ).textTheme.headlineMedium?.copyWith(letterSpacing: 2),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.menu_rounded, color: _primaryBrown, size: 28),
+          onPressed: () {},
+        ),
+        centerTitle: true,
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: _accentBrown.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.local_florist,
+                color: _accentBrown,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              'YATHRA',
+              style: TextStyle(
+                fontFamily: 'Serif',
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 2,
+                color: _primaryBrown,
+              ),
+            ),
+          ],
         ),
         actions: [
-          IconButton(
-            onPressed: () => Navigator.of(context).pushNamed('/youth-saved'),
-            tooltip: 'Saved stories',
-            icon: const Icon(Icons.bookmarks_outlined),
-          ),
-        ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 20, 16, 28),
-          children: [
-            const Text(
-              'Discover your cultural heritage',
-              style: TextStyle(
-                color: _darkBrown,
-                fontSize: 25,
-                fontWeight: FontWeight.bold,
+          Stack(
+            children: [
+              IconButton(
+                icon: const Icon(
+                  Icons.notifications_none_rounded,
+                  color: _primaryBrown,
+                  size: 26,
+                ),
+                onPressed: () {},
               ),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              'Stories, traditions, and knowledge shared by the community.',
-              style: TextStyle(
-                color: Colors.black54,
-                fontSize: 16,
-                height: 1.4,
-              ),
-            ),
-            if (widget.profileComplete == false) ...[
-              const SizedBox(height: 18),
-              Card(
-                color: const Color(0xFFF1E5D5),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.person_outline, color: _primaryBrown),
-                      const SizedBox(width: 12),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Complete your profile',
-                              style: TextStyle(
-                                color: _darkBrown,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
-                            ),
-                            SizedBox(height: 3),
-                            Text(
-                              'Add your interests to personalize your journey.',
-                            ),
-                          ],
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: widget.onProfile,
-                        child: const Text('Complete Profile'),
-                      ),
-                    ],
+              Positioned(
+                right: 12,
+                top: 12,
+                child: Container(
+                  width: 9,
+                  height: 9,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFD9534F),
+                    shape: BoxShape.circle,
                   ),
                 ),
               ),
             ],
-            const SizedBox(height: 18),
-            InkWell(
-              onTap: widget.onExplore,
-              borderRadius: BorderRadius.circular(12),
-              child: InputDecorator(
-                decoration: InputDecoration(
-                  hintText: 'Search stories, folklore, crafts...',
-                  prefixIcon: const Icon(Icons.search),
-                  suffixIcon: const Icon(Icons.arrow_forward),
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-                child: const Text(
-                  'Search stories, folklore, crafts...',
-                  style: TextStyle(color: Colors.black45),
-                ),
-              ),
+          ),
+          IconButton(
+            icon: const Icon(
+              Icons.account_circle_outlined,
+              color: _primaryBrown,
+              size: 28,
             ),
-            const SizedBox(height: 20),
-            const Text(
-              'Explore categories',
-              style: TextStyle(
-                color: _darkBrown,
-                fontSize: 19,
-                fontWeight: FontWeight.bold,
-              ),
+            onPressed: widget.onProfile,
+          ),
+          const SizedBox(width: 6),
+        ],
+      ),
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(
+              parent: BouncingScrollPhysics(),
             ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _categories
-                  .map(
-                    (category) => ActionChip(
-                      avatar: const Icon(Icons.auto_stories_outlined, size: 18),
-                      label: Text(category),
-                      onPressed: widget.onExplore,
-                    ),
-                  )
-                  .toList(growable: false),
-            ),
-            const SizedBox(height: 24),
-            Row(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Expanded(
-                  child: Text(
-                    'Latest stories',
-                    style: TextStyle(
-                      color: _darkBrown,
-                      fontSize: 21,
-                      fontWeight: FontWeight.bold,
-                    ),
+                _buildGreetingBanner(),
+                const SizedBox(height: 20),
+                _buildSubTabs(),
+                const SizedBox(height: 20),
+                _buildStoryFeed(),
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGreetingBanner() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: _cardBackground,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.grey.withValues(alpha: 0.15)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Hello, $_greetingName!',
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: _primaryBrown,
+                    fontFamily: 'Serif',
                   ),
                 ),
-                TextButton(
-                  onPressed: widget.onExplore,
-                  child: const Text('Explore more'),
+                const SizedBox(height: 6),
+                const Text(
+                  'Discover, learn and connect with our culture.',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.black54,
+                    height: 1.3,
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            if (_isLoading)
-              const Padding(
-                padding: EdgeInsets.all(36),
-                child: Center(
-                  child: CircularProgressIndicator(color: _primaryBrown),
-                ),
-              )
-            else if (_error != null)
-              _MessageCard(message: _error!, onRetry: _load)
-            else if (_stories.isEmpty)
-              const _MessageCard(
-                message: 'No cultural stories have been shared yet.',
-              )
-            else
-              for (final story in _stories)
-                YouthStoryCard(
-                  story: story,
-                  onTap: () => _openStory(story.id),
-                  isBookmarked:
-                      _bookmarksReady &&
-                      _bookmarkService.isBookmarked(story.id),
-                  onBookmark: _bookmarksReady
-                      ? () => _toggleBookmark(story.id)
-                      : null,
-                ),
+          ),
+          const SizedBox(width: 12),
+          InkWell(
+            onTap: widget.onProfile,
+            customBorder: const CircleBorder(),
+            child: Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: _accentBrown.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.person_outline_rounded,
+                size: 40,
+                color: _accentBrown,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSubTabs() {
+    return Row(
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'For You',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: _primaryBrown,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Container(
+              width: 60,
+              height: 3,
+              decoration: BoxDecoration(
+                color: _accentBrown,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
           ],
         ),
-      ),
+        const SizedBox(width: 28),
+        GestureDetector(
+          onTap: widget.onExplore,
+          child: const Padding(
+            padding: EdgeInsets.only(bottom: 7),
+            child: Text(
+              'Explore',
+              style: TextStyle(fontSize: 18, color: Colors.black45),
+            ),
+          ),
+        ),
+        const Spacer(),
+        IconButton(
+          onPressed: () => Navigator.of(context).pushNamed('/youth-saved'),
+          tooltip: 'Saved stories',
+          visualDensity: VisualDensity.compact,
+          icon: const Icon(Icons.bookmarks_outlined, color: _accentBrown),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStoryFeed() {
+    if (_isLoading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 28),
+        child: Center(child: CircularProgressIndicator(color: _accentBrown)),
+      );
+    }
+    if (_error != null) return _MessageCard(message: _error!, onRetry: _load);
+    if (_stories.isEmpty) {
+      return const _MessageCard(
+        message: 'No cultural stories have been shared yet.',
+      );
+    }
+    return Column(
+      children: [
+        for (final story in _stories)
+          YouthStoryCard(
+            story: story,
+            dummyMetadata: _showingDummyStories
+                ? _dummyStore.metadataFor(story.id)
+                : null,
+            onTap: () => _openStory(story),
+            isBookmarked: _showingDummyStories
+                ? _dummyStore.isBookmarked(story.id)
+                : _bookmarksReady && _bookmarkService.isBookmarked(story.id),
+            onBookmark: _showingDummyStories || _bookmarksReady
+                ? () => _toggleBookmark(story)
+                : null,
+            onLike: _showingDummyStories
+                ? () => _dummyStore.toggleLike(story.id)
+                : null,
+            onComment: _showingDummyStories ? _showDummyComments : null,
+          ),
+      ],
     );
   }
 }
@@ -283,25 +400,35 @@ class _MessageCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      color: Colors.white,
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            const Icon(Icons.auto_stories_outlined, size: 42),
-            const SizedBox(height: 10),
-            Text(message, textAlign: TextAlign.center),
-            if (onRetry != null) ...[
-              const SizedBox(height: 10),
-              TextButton.icon(
-                onPressed: onRetry,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
-              ),
-            ],
-          ],
-        ),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFDF8),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.grey.withValues(alpha: 0.15)),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.auto_stories_outlined,
+            size: 28,
+            color: Color(0xFF6B4226),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(color: Colors.black54, height: 1.3),
+            ),
+          ),
+          if (onRetry != null)
+            IconButton(
+              onPressed: onRetry,
+              tooltip: 'Retry',
+              icon: const Icon(Icons.refresh, color: Color(0xFF6B4226)),
+            ),
+        ],
       ),
     );
   }
