@@ -9,11 +9,7 @@ import 'youth_home_page.dart';
 import 'youth_profile_page.dart';
 
 class YouthHubShell extends StatefulWidget {
-  const YouthHubShell({
-    super.key,
-    this.userRole = 'youth',
-    this.userName = 'Kamala Devi',
-  });
+  const YouthHubShell({super.key, this.userRole = 'youth', this.userName = ''});
 
   final String userRole;
   final String userName;
@@ -27,7 +23,7 @@ class _YouthHubShellState extends State<YouthHubShell> {
   int _currentIndex = 0;
   bool? _profileComplete;
   String _role = 'youth';
-  String _name = 'Kamala Devi';
+  String _name = '';
 
   @override
   void initState() {
@@ -75,6 +71,7 @@ class _YouthHubShellState extends State<YouthHubShell> {
           isElder
               ? ElderHomePage(userName: _name)
               : YouthHomePage(
+                  userName: _name,
                   profileComplete: _profileComplete,
                   onExplore: () => _selectTab(1),
                   onProfile: () => _selectTab(3),
@@ -85,9 +82,12 @@ class _YouthHubShellState extends State<YouthHubShell> {
               ? ElderProfilePage(userName: _name)
               : YouthProfilePage(
                   onProfileSaved: (profile) {
-                    setState(
-                      () => _profileComplete = profile['profileComplete'] == true,
-                    );
+                    setState(() {
+                      _profileComplete = profile['profileComplete'] == true;
+                      if (profile['name'] is String) {
+                        _name = profile['name'] as String;
+                      }
+                    });
                   },
                 ),
         ],
