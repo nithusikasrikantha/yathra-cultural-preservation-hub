@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../data/elder_story_engagement_demo_data.dart';
 import '../models/story.dart';
 import '../services/bookmark_service.dart';
 import '../services/story_service.dart';
@@ -10,10 +11,12 @@ class YouthStoryDetailPage extends StatefulWidget {
     super.key,
     required this.storyId,
     this.preloadedStory,
+    this.userRole = 'youth',
   });
 
   final String storyId;
   final Story? preloadedStory;
+  final String userRole;
 
   @override
   State<YouthStoryDetailPage> createState() => _YouthStoryDetailPageState();
@@ -30,6 +33,7 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
 
   bool get _isDummyStory =>
       widget.preloadedStory != null && _dummyStore.isDummyId(widget.storyId);
+  bool get _isElder => widget.userRole == 'elder';
 
   Story? _story;
   bool _bookmarksReady = false;
@@ -40,7 +44,9 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
   @override
   void initState() {
     super.initState();
-    if (_isDummyStory) {
+    if (_isElder) {
+      _bookmarksReady = false;
+    } else if (_isDummyStory) {
       _dummyStore.addListener(_handleBookmarksChanged);
       _bookmarksReady = true;
     } else {
@@ -52,7 +58,9 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
 
   @override
   void dispose() {
-    if (_isDummyStory) {
+    if (_isElder) {
+      // Elder story details expose read-only engagement metrics.
+    } else if (_isDummyStory) {
       _dummyStore.removeListener(_handleBookmarksChanged);
     } else {
       _bookmarkService.removeListener(_handleBookmarksChanged);
@@ -150,13 +158,16 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
           style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
         ),
         actions: [
-          IconButton(
-            onPressed: _story != null && _bookmarksReady
-                ? _toggleBookmark
-                : null,
-            tooltip: _isBookmarked ? 'Remove bookmark' : 'Save story',
-            icon: Icon(_isBookmarked ? Icons.bookmark : Icons.bookmark_border),
-          ),
+          if (!_isElder)
+            IconButton(
+              onPressed: _story != null && _bookmarksReady
+                  ? _toggleBookmark
+                  : null,
+              tooltip: _isBookmarked ? 'Remove bookmark' : 'Save story',
+              icon: Icon(
+                _isBookmarked ? Icons.bookmark : Icons.bookmark_border,
+              ),
+            ),
         ],
       ),
       body: SafeArea(child: _buildBody()),
@@ -311,6 +322,16 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
                       ),
                     ),
                   ],
+                  if (_isElder) ...[
+                    const SizedBox(height: 26),
+                    const Divider(),
+                    const SizedBox(height: 12),
+                    _ElderEngagementFooter(
+                      engagement: ElderStoryEngagementDemoData.forStory(
+                        widget.storyId,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -381,6 +402,67 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
     final month = localDate.month.toString().padLeft(2, '0');
     final day = localDate.day.toString().padLeft(2, '0');
     return '${localDate.year}-$month-$day';
+  }
+}
+
+class _ElderEngagementFooter extends StatelessWidget {
+  const _ElderEngagementFooter({required this.engagement});
+
+  final ElderStoryEngagement engagement;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      container: true,
+      label:
+          '${engagement.likes} likes, ${engagement.comments} comments, ${engagement.saves} saves',
+      child: Row(
+        children: [
+          Expanded(
+            child: _metric(
+              Icons.favorite_border_rounded,
+              engagement.likes,
+              'Likes',
+            ),
+          ),
+          Expanded(
+            child: _metric(
+              Icons.chat_bubble_outline_rounded,
+              engagement.comments,
+              'Comments',
+            ),
+          ),
+          Expanded(
+            child: _metric(
+              Icons.bookmark_border_rounded,
+              engagement.saves,
+              'Saves',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _metric(IconData icon, int count, String label) {
+    return ExcludeSemantics(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 21, color: const Color(0xFF6B4226)),
+          const SizedBox(height: 4),
+          Text(
+            '$count $label',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Color(0xFF4A2C1A),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

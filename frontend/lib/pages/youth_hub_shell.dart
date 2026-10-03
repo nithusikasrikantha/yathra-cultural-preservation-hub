@@ -4,7 +4,7 @@ import '../services/auth_service.dart';
 import 'elder/elder_home_page.dart';
 import 'elder/elder_profile_page.dart';
 import 'explore_page.dart';
-import 'youth_heritage_map_page.dart';
+import 'map/cultural_map_page.dart';
 import 'youth_home_page.dart';
 import 'youth_profile_page.dart';
 
@@ -77,7 +77,7 @@ class _YouthHubShellState extends State<YouthHubShell> {
                   onProfile: () => _selectTab(3),
                 ),
           const ExplorePage(),
-          const YouthHeritageMapPage(),
+          CulturalMapPage(userRole: _role),
           isElder
               ? ElderProfilePage(userName: _name)
               : YouthProfilePage(
