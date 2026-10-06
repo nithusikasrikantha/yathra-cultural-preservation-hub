@@ -10,6 +10,8 @@ class ApiEndpoints {
 
   // AI learning tools
   static const String storyTranslation = '/api/ai/story-translation';
+  static const String termExplanation = '/api/ai/term-explanation';
+  static const String vocabularyTranslation = '/api/ai/vocabulary-translation';
 
   // Content
   static const String culturalContent = '/api/content';

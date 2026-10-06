@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const Story = require('../models/Story');
+const { knownYouthDemoStories } = require('../config/youthDemoStories');
 const {
   translateStory,
   TranslationProviderError,
@@ -7,24 +8,6 @@ const {
 
 const supportedLanguages = new Set(['Tamil', 'Sinhala', 'English']);
 const MAX_STORY_CHARACTERS = 12000;
-const knownDemoStories = new Map([
-  [
-    'youth-dummy-village-harvest-festival',
-    {
-      sourceLanguage: 'English',
-      storyText:
-        'The story of our village harvest, when the whole community came together to celebrate the season...',
-    },
-  ],
-  [
-    'youth-dummy-traditional-jaffna-recipe',
-    {
-      sourceLanguage: 'English',
-      storyText:
-        'A traditional recipe passed down through generations, prepared during family and community celebrations...',
-    },
-  ],
-]);
 
 const normalizeLanguage = (language) =>
   typeof language === 'string' ? language.trim().toLowerCase() : '';
@@ -89,7 +72,7 @@ const translateStoryController = async (req, res) => {
         return res.status(400).json({ message: 'A demo story ID is required.' });
       }
 
-      const knownDemoStory = knownDemoStories.get(storyId);
+      const knownDemoStory = knownYouthDemoStories.get(storyId);
       if (!knownDemoStory) {
         return res.status(404).json({ message: 'Demo story not found.' });
       }
