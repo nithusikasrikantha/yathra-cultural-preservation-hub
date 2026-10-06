@@ -23,13 +23,17 @@ class ApiService {
     String endpoint, {
     dynamic body,
     Map<String, String>? headers,
+    Duration? timeout,
   }) async {
     try {
-      final response = await http.post(
+      final request = http.post(
         Uri.parse('$baseUrl$endpoint'),
         headers: headers ?? {'Content-Type': 'application/json'},
         body: jsonEncode(body),
       );
+      final response = await (timeout == null
+          ? request
+          : request.timeout(timeout));
       return _handleResponse(response);
     } catch (e) {
       if (e is Exception && e.toString().startsWith('Exception: ')) rethrow;
