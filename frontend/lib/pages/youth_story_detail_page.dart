@@ -4,7 +4,9 @@ import '../data/elder_story_engagement_demo_data.dart';
 import '../models/story.dart';
 import '../services/bookmark_service.dart';
 import '../services/story_service.dart';
+import '../services/term_explanation_service.dart';
 import '../services/translation_service.dart';
+import '../services/vocabulary_translation_service.dart';
 import '../services/youth_dummy_content_store.dart';
 
 class YouthStoryDetailPage extends StatefulWidget {
@@ -35,6 +37,10 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
 
   final StoryService _storyService = const StoryService();
   final TranslationService _translationService = TranslationService();
+  final TermExplanationService _termExplanationService =
+      TermExplanationService();
+  final VocabularyTranslationService _vocabularyTranslationService =
+      VocabularyTranslationService();
   final BookmarkService _bookmarkService = BookmarkService.instance;
   final YouthDummyContentStore _dummyStore = YouthDummyContentStore.instance;
 
@@ -266,6 +272,46 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
         ..hideCurrentSnackBar()
         ..showSnackBar(const SnackBar(content: Text(message)));
     }
+  }
+
+  Future<void> _openTermExplanation() async {
+    final story = _story;
+    if (story == null || _isElder) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: _backgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => _TermExplanationSheet(
+        service: _termExplanationService,
+        storyId: story.id,
+        isDemo: _isDummyStory,
+        initialLanguage: _selectedTargetLanguage,
+      ),
+    );
+  }
+
+  Future<void> _openVocabularyTranslation() async {
+    final story = _story;
+    if (story == null || _isElder) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: _backgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => _VocabularyTranslationSheet(
+        service: _vocabularyTranslationService,
+        storyId: story.id,
+        isDemo: _isDummyStory,
+        initialLanguage: _selectedTargetLanguage,
+      ),
+    );
   }
 
   @override
@@ -801,6 +847,33 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
               ),
             ],
           ],
+          const SizedBox(height: 16),
+          Divider(color: _primaryBrown.withValues(alpha: 0.18)),
+          const SizedBox(height: 12),
+          const Text(
+            'Learn about a word or phrase from this story.',
+            style: TextStyle(color: Colors.black54, fontSize: 13, height: 1.35),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: _openTermExplanation,
+            icon: const Icon(Icons.lightbulb_outline_rounded),
+            label: const Text('Explain Cultural Term'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _primaryBrown,
+              side: const BorderSide(color: _primaryBrown),
+            ),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: _openVocabularyTranslation,
+            icon: const Icon(Icons.text_fields_rounded),
+            label: const Text('Translate Word / Phrase'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _primaryBrown,
+              side: const BorderSide(color: _primaryBrown),
+            ),
+          ),
         ],
       ),
     );
@@ -867,6 +940,656 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
     final month = localDate.month.toString().padLeft(2, '0');
     final day = localDate.day.toString().padLeft(2, '0');
     return '${localDate.year}-$month-$day';
+  }
+}
+
+class _VocabularyTranslationSheet extends StatefulWidget {
+  const _VocabularyTranslationSheet({
+    required this.service,
+    required this.storyId,
+    required this.isDemo,
+    required this.initialLanguage,
+  });
+
+  final VocabularyTranslationService service;
+  final String storyId;
+  final bool isDemo;
+  final String initialLanguage;
+
+  @override
+  State<_VocabularyTranslationSheet> createState() =>
+      _VocabularyTranslationSheetState();
+}
+
+class _VocabularyTranslationSheetState
+    extends State<_VocabularyTranslationSheet> {
+  static const Color _primaryBrown = Color(0xFF6B4226);
+  static const Color _darkBrown = Color(0xFF4A2C1A);
+  static const List<String> _languages = ['Tamil', 'Sinhala', 'English'];
+
+  final TextEditingController _textController = TextEditingController();
+  late String _selectedLanguage;
+  VocabularyTranslation? _translation;
+  String? _errorMessage;
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedLanguage = _languages.contains(widget.initialLanguage)
+        ? widget.initialLanguage
+        : 'English';
+  }
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _translate() async {
+    if (_isLoading) return;
+    final text = _textController.text.trim();
+    if (text.isEmpty) {
+      setState(() => _errorMessage = 'Enter a word or short phrase.');
+      return;
+    }
+    if (text.length > 100) {
+      setState(() => _errorMessage = 'Use 100 characters or fewer.');
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+      _translation = null;
+    });
+    try {
+      final translation = await widget.service.translate(
+        text: text,
+        targetLanguage: _selectedLanguage,
+        storyId: widget.storyId,
+        isDemo: widget.isDemo,
+      );
+      if (!mounted) return;
+      setState(() {
+        _translation = translation;
+        _isLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _errorMessage =
+            'We could not translate this word or phrase right now. Please try again.';
+      });
+    }
+  }
+
+  void _startAnotherTranslation() {
+    setState(() {
+      _textController.clear();
+      _translation = null;
+      _errorMessage = null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          14,
+          20,
+          20 + MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: _primaryBrown.withValues(alpha: 0.25),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Translate Word / Phrase',
+                      style: TextStyle(
+                        color: _darkBrown,
+                        fontSize: 21,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    tooltip: 'Close',
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+              const Text(
+                'Translate a specific word or short phrase using this story for context.',
+                style: TextStyle(color: Colors.black54, height: 1.4),
+              ),
+              const SizedBox(height: 18),
+              TextField(
+                controller: _textController,
+                enabled: !_isLoading,
+                maxLength: 100,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _translate(),
+                decoration: InputDecoration(
+                  labelText: 'Enter a word or short phrase from this story',
+                  hintText: 'Example: harvest festival',
+                  filled: true,
+                  fillColor: const Color(0xFFFFFDF8),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(
+                      color: _primaryBrown,
+                      width: 1.5,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Target language',
+                style: TextStyle(
+                  color: _darkBrown,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 9),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _languages
+                    .map(
+                      (language) => ChoiceChip(
+                        label: Text(language),
+                        selected: _selectedLanguage == language,
+                        onSelected: _isLoading
+                            ? null
+                            : (_) => setState(() {
+                                _selectedLanguage = language;
+                                _translation = null;
+                                _errorMessage = null;
+                              }),
+                        selectedColor: _primaryBrown,
+                        backgroundColor: const Color(0xFFFFFDF8),
+                        labelStyle: TextStyle(
+                          color: _selectedLanguage == language
+                              ? Colors.white
+                              : _darkBrown,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    )
+                    .toList(growable: false),
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _isLoading ? null : _translate,
+                  icon: _isLoading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.translate_rounded),
+                  label: Text(_isLoading ? 'Translating…' : 'Translate'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _primaryBrown,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
+              ),
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF4E5),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.info_outline_rounded,
+                        color: _primaryBrown,
+                      ),
+                      const SizedBox(width: 9),
+                      Expanded(child: Text(_errorMessage!)),
+                      if (_textController.text.trim().isNotEmpty)
+                        TextButton(
+                          onPressed: _isLoading ? null : _translate,
+                          child: const Text('Retry'),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+              if (_translation != null) ...[
+                const SizedBox(height: 18),
+                _VocabularyTranslationCard(translation: _translation!),
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: _startAnotherTranslation,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('Translate another word'),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _VocabularyTranslationCard extends StatelessWidget {
+  const _VocabularyTranslationCard({required this.translation});
+
+  final VocabularyTranslation translation;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFDF8),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0x336B4226)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _section('Original', translation.original),
+          _section('Translation', translation.translatedText),
+          _section('Contextual Meaning', translation.contextualMeaning),
+          if (translation.example.isNotEmpty)
+            _section('Use In Sentence', translation.example, isLast: true),
+        ],
+      ),
+    );
+  }
+
+  Widget _section(String label, String value, {bool isLast = false}) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: isLast ? 0 : 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF6B4226),
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.4,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: const TextStyle(
+              color: Color(0xFF4A2C1A),
+              fontSize: 15,
+              height: 1.45,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TermExplanationSheet extends StatefulWidget {
+  const _TermExplanationSheet({
+    required this.service,
+    required this.storyId,
+    required this.isDemo,
+    required this.initialLanguage,
+  });
+
+  final TermExplanationService service;
+  final String storyId;
+  final bool isDemo;
+  final String initialLanguage;
+
+  @override
+  State<_TermExplanationSheet> createState() => _TermExplanationSheetState();
+}
+
+class _TermExplanationSheetState extends State<_TermExplanationSheet> {
+  static const Color _primaryBrown = Color(0xFF6B4226);
+  static const Color _darkBrown = Color(0xFF4A2C1A);
+  static const List<String> _languages = ['Tamil', 'Sinhala', 'English'];
+
+  final TextEditingController _termController = TextEditingController();
+  late String _selectedLanguage;
+  CulturalTermExplanation? _explanation;
+  String? _errorMessage;
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedLanguage = _languages.contains(widget.initialLanguage)
+        ? widget.initialLanguage
+        : 'English';
+  }
+
+  @override
+  void dispose() {
+    _termController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _explain() async {
+    if (_isLoading) return;
+    final term = _termController.text.trim();
+    if (term.isEmpty) {
+      setState(() => _errorMessage = 'Enter a cultural word or phrase.');
+      return;
+    }
+    if (term.length > 80) {
+      setState(() => _errorMessage = 'Use 80 characters or fewer.');
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+      _explanation = null;
+    });
+    try {
+      final explanation = await widget.service.explainTerm(
+        term: term,
+        targetLanguage: _selectedLanguage,
+        storyId: widget.storyId,
+        isDemo: widget.isDemo,
+      );
+      if (!mounted) return;
+      setState(() {
+        _explanation = explanation;
+        _isLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _errorMessage =
+            'We could not explain this term right now. Please try again.';
+      });
+    }
+  }
+
+  void _startAnotherTerm() {
+    setState(() {
+      _termController.clear();
+      _explanation = null;
+      _errorMessage = null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          14,
+          20,
+          20 + MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: _primaryBrown.withValues(alpha: 0.25),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Explain Cultural Term',
+                      style: TextStyle(
+                        color: _darkBrown,
+                        fontSize: 21,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    tooltip: 'Close',
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+              const Text(
+                'Learn the meaning and cultural context of a word or phrase.',
+                style: TextStyle(color: Colors.black54, height: 1.4),
+              ),
+              const SizedBox(height: 18),
+              TextField(
+                controller: _termController,
+                enabled: !_isLoading,
+                maxLength: 80,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _explain(),
+                decoration: InputDecoration(
+                  labelText: 'Enter a cultural word or phrase',
+                  hintText: 'Example: Thai Pongal, Kolam, Koothu',
+                  filled: true,
+                  fillColor: const Color(0xFFFFFDF8),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(
+                      color: _primaryBrown,
+                      width: 1.5,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Explanation language',
+                style: TextStyle(
+                  color: _darkBrown,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 9),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _languages
+                    .map(
+                      (language) => ChoiceChip(
+                        label: Text(language),
+                        selected: _selectedLanguage == language,
+                        onSelected: _isLoading
+                            ? null
+                            : (_) => setState(() {
+                                _selectedLanguage = language;
+                                _explanation = null;
+                                _errorMessage = null;
+                              }),
+                        selectedColor: _primaryBrown,
+                        backgroundColor: const Color(0xFFFFFDF8),
+                        labelStyle: TextStyle(
+                          color: _selectedLanguage == language
+                              ? Colors.white
+                              : _darkBrown,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    )
+                    .toList(growable: false),
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _isLoading ? null : _explain,
+                  icon: _isLoading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.auto_awesome_rounded),
+                  label: Text(_isLoading ? 'Explaining…' : 'Explain Term'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _primaryBrown,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
+              ),
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF4E5),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.info_outline_rounded,
+                        color: _primaryBrown,
+                      ),
+                      const SizedBox(width: 9),
+                      Expanded(child: Text(_errorMessage!)),
+                      if (_termController.text.trim().isNotEmpty)
+                        TextButton(
+                          onPressed: _isLoading ? null : _explain,
+                          child: const Text('Retry'),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+              if (_explanation != null) ...[
+                const SizedBox(height: 18),
+                _TermExplanationCard(explanation: _explanation!),
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: _startAnotherTerm,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('Explain another term'),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TermExplanationCard extends StatelessWidget {
+  const _TermExplanationCard({required this.explanation});
+
+  final CulturalTermExplanation explanation;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFDF8),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0x336B4226)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _section('Term', explanation.term),
+          _section('Meaning', explanation.meaning),
+          _section('Cultural Context', explanation.culturalContext),
+          if (explanation.example.isNotEmpty)
+            _section('Example', explanation.example, isLast: true),
+        ],
+      ),
+    );
+  }
+
+  Widget _section(String label, String value, {bool isLast = false}) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: isLast ? 0 : 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF6B4226),
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.4,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: const TextStyle(
+              color: Color(0xFF4A2C1A),
+              fontSize: 15,
+              height: 1.45,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
