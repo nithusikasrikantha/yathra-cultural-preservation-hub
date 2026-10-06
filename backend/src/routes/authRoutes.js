@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { jwtSecret } = require('../config/env');
+const { requireAuth, requireYouth } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -65,30 +66,6 @@ const createToken = (user) => jwt.sign(
   jwtSecret,
   { expiresIn: '1h', issuer: 'yathra-api', audience: 'yathra-app' }
 );
-
-const authenticate = async (req, res, next) => {
-  const authHeader = req.get('authorization') || '';
-  const [scheme, token] = authHeader.split(' ');
-  if (scheme !== 'Bearer' || !token) {
-    return res.status(401).json({ message: 'Authentication required.' });
-  }
-  try {
-    const payload = jwt.verify(token, jwtSecret);
-    const user = await User.findById(payload.sub);
-    if (!user) return res.status(401).json({ message: 'Authentication required.' });
-    req.user = user;
-    return next();
-  } catch (_) {
-    return res.status(401).json({ message: 'Authentication required.' });
-  }
-};
-
-const requireYouth = (req, res, next) => {
-  if (req.user.role !== 'youth') {
-    return res.status(403).json({ message: 'A youth account is required.' });
-  }
-  return next();
-};
 
 const validateYouthProfile = (body) => {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -250,7 +227,7 @@ router.post('/login', async (req, res) => {
 
 // @route   PUT /api/auth/role
 // @access  Authenticated user
-router.put('/role', authenticate, async (req, res) => {
+router.put('/role', requireAuth, async (req, res) => {
   const { role } = req.body || {};
   if (!['elder', 'youth'].includes(role)) {
     return res.status(400).json({ message: 'Role must be elder or youth.' });
@@ -272,14 +249,14 @@ router.put('/role', authenticate, async (req, res) => {
 // @route   GET /api/auth/youth-profile
 // @desc    Get the authenticated youth user's profile
 // @access  Authenticated youth user
-router.get('/youth-profile', authenticate, requireYouth, (req, res) => {
+router.get('/youth-profile', requireAuth, requireYouth, (req, res) => {
   return res.status(200).json({ profile: youthProfileResponse(req.user) });
 });
 
 // @route   PUT /api/auth/youth-profile
 // @desc    Create or replace the authenticated youth user's profile fields
 // @access  Authenticated youth user
-router.put('/youth-profile', authenticate, requireYouth, async (req, res) => {
+router.put('/youth-profile', requireAuth, requireYouth, async (req, res) => {
   const validated = validateYouthProfile(req.body);
   if (validated.error) {
     return res.status(400).json({ message: validated.error });

@@ -4,6 +4,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const storyRoutes = require('./routes/storyRoutes');
 const authRoutes = require('./routes/authRoutes');
+const aiRoutes = require('./routes/aiRoutes');
 const { errorHandler, notFound } = require('./middleware/errorMiddleware');
 const { nodeEnv } = require('./config/env');
 
@@ -25,6 +26,7 @@ app.use(express.urlencoded({ extended: false }));
 // Routes
 app.use('/api/stories', storyRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/ai', aiRoutes);
 
 // Health Check Route
 app.get('/api/health', (req, res) => {
