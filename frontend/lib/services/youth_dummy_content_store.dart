@@ -15,7 +15,7 @@ class YouthDummyContentStore extends ChangeNotifier {
       id: '${_idPrefix}village-harvest-festival',
       title: 'Village Harvest Festival',
       category: 'Traditional Story',
-      language: 'Tamil',
+      language: 'English',
       storyText:
           'The story of our village harvest, when the whole community came together to celebrate the season...',
       tags: ['harvest', 'village', 'tradition'],
@@ -25,7 +25,7 @@ class YouthDummyContentStore extends ChangeNotifier {
       id: '${_idPrefix}traditional-jaffna-recipe',
       title: 'Traditional Jaffna Recipe',
       category: 'Recipe',
-      language: 'Tamil',
+      language: 'English',
       storyText:
           'A traditional recipe passed down through generations, prepared during family and community celebrations...',
       tags: ['food', 'recipe', 'jaffna'],

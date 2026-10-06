@@ -8,6 +8,9 @@ class ApiEndpoints {
   static const String youthProfile = '/api/auth/youth-profile';
   static const String elderProfile = '/api/auth/elder-profile';
 
+  // AI learning tools
+  static const String storyTranslation = '/api/ai/story-translation';
+
   // Content
   static const String culturalContent = '/api/content';
 
