@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/story.dart';
 import '../services/bookmark_service.dart';
 import '../services/story_service.dart';
+import '../services/youth_dummy_content_store.dart';
 import 'youth_story_detail_page.dart';
 
 class YouthSavedPostsPage extends StatefulWidget {
@@ -18,6 +19,7 @@ class _YouthSavedPostsPageState extends State<YouthSavedPostsPage> {
   static const Color _darkBrown = Color(0xFF4A2C1A);
 
   final BookmarkService _bookmarkService = BookmarkService.instance;
+  final YouthDummyContentStore _dummyStore = YouthDummyContentStore.instance;
   final StoryService _storyService = const StoryService();
   final Map<String, Story> _storiesById = {};
   final Set<String> _missingIds = {};
@@ -31,17 +33,23 @@ class _YouthSavedPostsPageState extends State<YouthSavedPostsPage> {
   void initState() {
     super.initState();
     _bookmarkService.addListener(_handleBookmarksChanged);
+    _dummyStore.addListener(_handleDummyBookmarksChanged);
     _loadSavedStories();
   }
 
   @override
   void dispose() {
     _bookmarkService.removeListener(_handleBookmarksChanged);
+    _dummyStore.removeListener(_handleDummyBookmarksChanged);
     super.dispose();
   }
 
   void _handleBookmarksChanged() {
     _loadSavedStories();
+  }
+
+  void _handleDummyBookmarksChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadSavedStories() async {
@@ -137,6 +145,15 @@ class _YouthSavedPostsPageState extends State<YouthSavedPostsPage> {
     }
   }
 
+  Future<void> _openDummyStory(Story story) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) =>
+            YouthStoryDetailPage(storyId: story.id, preloadedStory: story),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -169,7 +186,8 @@ class _YouthSavedPostsPageState extends State<YouthSavedPostsPage> {
     }
 
     final ids = _bookmarkService.storyIds;
-    if (ids.isEmpty) {
+    final dummyStories = _dummyStore.bookmarkedStories.toList(growable: false);
+    if (ids.isEmpty && dummyStories.isEmpty) {
       return _buildMessageState(
         icon: Icons.bookmark_border,
         title: 'No saved posts yet',
@@ -199,6 +217,12 @@ class _YouthSavedPostsPageState extends State<YouthSavedPostsPage> {
               style: TextStyle(color: Colors.black54, fontSize: 15),
             ),
             const SizedBox(height: 20),
+            for (final story in dummyStories)
+              _SavedStoryCard(
+                story: story,
+                onOpen: () => _openDummyStory(story),
+                onRemove: () => _dummyStore.removeBookmark(story.id),
+              ),
             for (final id in ids)
               if (_storiesById[id] case final story?)
                 _SavedStoryCard(

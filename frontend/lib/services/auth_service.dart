@@ -11,7 +11,7 @@ class AuthService {
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
   static const String _tokenKey = 'auth_token';
 
-  Future<Map<String, String>> _authenticatedHeaders() async {
+  static Future<Map<String, String>> authenticatedHeaders() async {
     final token = await _storage.read(key: _tokenKey);
 
     if (token == null || token.isEmpty) {
@@ -22,6 +22,10 @@ class AuthService {
       'Content-Type': 'application/json',
       'Authorization': 'Bearer $token',
     };
+  }
+
+  Future<Map<String, String>> _authenticatedHeaders() async {
+    return authenticatedHeaders();
   }
 
   Future<Map<String, dynamic>> register({
@@ -63,10 +67,7 @@ class AuthService {
       await _storage.write(key: 'auth_user_id', value: user['_id'] as String);
     }
     if (user['role'] is String) {
-      await _storage.write(
-        key: 'auth_user_role',
-        value: user['role'] as String,
-      );
+      await _storage.write(key: 'auth_user_role', value: user['role'] as String);
     }
 
     return result;
@@ -86,6 +87,13 @@ class AuthService {
     }
 
     await _storage.write(key: _tokenKey, value: result['token'] as String);
+    final user = result['user'] as Map<String, dynamic>;
+    if (user['_id'] is String) {
+      await _storage.write(key: 'auth_user_id', value: user['_id'] as String);
+    }
+    if (user['role'] is String) {
+      await _storage.write(key: 'auth_user_role', value: user['role'] as String);
+    }
 
     return result;
   }
@@ -101,6 +109,20 @@ class AuthService {
     }
 
     return Map<String, dynamic>.from(result['profile'] as Map);
+  }
+
+  Future<Map<String, dynamic>> getElderProfile() async {
+    try {
+      final result = await _apiService.get(
+        ApiEndpoints.elderProfile,
+        headers: await _authenticatedHeaders(),
+      );
+
+      if (result is Map<String, dynamic> && result['profile'] is Map) {
+        return Map<String, dynamic>.from(result['profile'] as Map);
+      }
+    } catch (_) {}
+    return {};
   }
 
   Future<Map<String, dynamic>> updateYouthProfile({
