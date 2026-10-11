@@ -1,11 +1,11 @@
-﻿import '../config/api_config.dart';
+import '../config/api_config.dart';
 import '../utils/api_endpoints.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'api_service.dart';
 
 class AuthService {
   AuthService({ApiService? apiService})
-      : _apiService = apiService ?? ApiService(baseUrl: ApiConfig.baseUrl);
+    : _apiService = apiService ?? ApiService(baseUrl: ApiConfig.baseUrl);
 
   final ApiService _apiService;
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
@@ -32,12 +32,7 @@ class AuthService {
   }) async {
     final result = await _apiService.post(
       ApiEndpoints.register,
-      body: {
-        'name': name,
-        'email': email,
-        'password': password,
-        'role': role,
-      },
+      body: {'name': name, 'email': email, 'password': password, 'role': role},
     );
 
     if (result is! Map<String, dynamic>) {
@@ -53,10 +48,7 @@ class AuthService {
   }) async {
     final result = await _apiService.post(
       ApiEndpoints.login,
-      body: {
-        'email': email,
-        'password': password,
-      },
+      body: {'email': email, 'password': password},
     );
 
     if (result is! Map<String, dynamic> ||
@@ -65,10 +57,17 @@ class AuthService {
       throw Exception('The server returned an invalid login response.');
     }
 
-    await _storage.write(
-      key: _tokenKey,
-      value: result['token'] as String,
-    );
+    await _storage.write(key: _tokenKey, value: result['token'] as String);
+    final user = result['user'] as Map<String, dynamic>;
+    if (user['_id'] is String) {
+      await _storage.write(key: 'auth_user_id', value: user['_id'] as String);
+    }
+    if (user['role'] is String) {
+      await _storage.write(
+        key: 'auth_user_role',
+        value: user['role'] as String,
+      );
+    }
 
     return result;
   }
@@ -86,10 +85,7 @@ class AuthService {
       throw Exception('The server returned an invalid role response.');
     }
 
-    await _storage.write(
-      key: _tokenKey,
-      value: result['token'] as String,
-    );
+    await _storage.write(key: _tokenKey, value: result['token'] as String);
 
     return result;
   }
@@ -101,14 +97,10 @@ class AuthService {
     );
 
     if (result is! Map<String, dynamic> || result['profile'] is! Map) {
-      throw Exception(
-        'The server returned an invalid youth profile response.',
-      );
+      throw Exception('The server returned an invalid youth profile response.');
     }
 
-    return Map<String, dynamic>.from(
-      result['profile'] as Map,
-    );
+    return Map<String, dynamic>.from(result['profile'] as Map);
   }
 
   Future<Map<String, dynamic>> updateYouthProfile({
@@ -133,15 +125,15 @@ class AuthService {
     );
 
     if (result is! Map<String, dynamic> || result['profile'] is! Map) {
-      throw Exception(
-        'The server returned an invalid youth profile response.',
-      );
+      throw Exception('The server returned an invalid youth profile response.');
     }
 
-    return Map<String, dynamic>.from(
-      result['profile'] as Map,
-    );
+    return Map<String, dynamic>.from(result['profile'] as Map);
   }
 
-  Future<void> logout() => _storage.delete(key: _tokenKey);
+  Future<void> logout() async {
+    await _storage.delete(key: _tokenKey);
+    await _storage.delete(key: 'auth_user_id');
+    await _storage.delete(key: 'auth_user_role');
+  }
 }

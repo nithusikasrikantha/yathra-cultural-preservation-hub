@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../pages/explore_page.dart';
 import '../widgets/content_card.dart';
+import '../pages/culture_connect_pages.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -18,7 +19,23 @@ class HomeScreen extends StatelessWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.notifications_none),
-            onPressed: () {},
+            tooltip: 'Notifications',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const ConnectionNotificationsPage(),
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.people_alt_outlined),
+            tooltip: 'My Connections',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const MyConnectionsPage(isElder: true),
+              ),
+            ),
           ),
           IconButton(icon: const Icon(Icons.bookmark_border), onPressed: () {}),
           const Padding(
