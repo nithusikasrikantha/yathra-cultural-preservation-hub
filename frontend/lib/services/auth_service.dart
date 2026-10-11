@@ -62,6 +62,13 @@ class AuthService {
     }
 
     await _storage.write(key: _tokenKey, value: result['token'] as String);
+    final user = result['user'] as Map<String, dynamic>;
+    if (user['_id'] is String) {
+      await _storage.write(key: 'auth_user_id', value: user['_id'] as String);
+    }
+    if (user['role'] is String) {
+      await _storage.write(key: 'auth_user_role', value: user['role'] as String);
+    }
 
     return result;
   }
@@ -80,6 +87,13 @@ class AuthService {
     }
 
     await _storage.write(key: _tokenKey, value: result['token'] as String);
+    final user = result['user'] as Map<String, dynamic>;
+    if (user['_id'] is String) {
+      await _storage.write(key: 'auth_user_id', value: user['_id'] as String);
+    }
+    if (user['role'] is String) {
+      await _storage.write(key: 'auth_user_role', value: user['role'] as String);
+    }
 
     return result;
   }
@@ -139,5 +153,9 @@ class AuthService {
     return Map<String, dynamic>.from(result['profile'] as Map);
   }
 
-  Future<void> logout() => _storage.delete(key: _tokenKey);
+  Future<void> logout() async {
+    await _storage.delete(key: _tokenKey);
+    await _storage.delete(key: 'auth_user_id');
+    await _storage.delete(key: 'auth_user_role');
+  }
 }

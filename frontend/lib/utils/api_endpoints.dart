@@ -18,4 +18,7 @@ class ApiEndpoints {
 
   // Connections
   static const String connections = '/api/connections';
+  static const String connectionElders = '/api/connections/elders';
+  static const String connectionNotifications =
+      '/api/connections/notifications';
 }

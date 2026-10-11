@@ -30,6 +30,11 @@ const storySchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+    connection: { type: mongoose.Schema.ObjectId, ref: 'Connection', default: null },
+    communityId: { type: String, default: '' },
+    communityName: { type: String, default: '' },
+    contributors: [{ type: mongoose.Schema.ObjectId, ref: 'User' }],
+    publishedBy: { type: mongoose.Schema.ObjectId, ref: 'User', default: null },
     isDeleted: {
       type: Boolean,
       default: false,

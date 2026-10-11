@@ -5,6 +5,7 @@ import '../services/bookmark_service.dart';
 import '../services/story_service.dart';
 import '../services/youth_dummy_content_store.dart';
 import '../widgets/youth_story_card.dart';
+import 'culture_connect_pages.dart';
 import 'youth_story_detail_page.dart';
 
 class YouthHomePage extends StatefulWidget {
@@ -204,6 +205,18 @@ class _YouthHomePageState extends State<YouthHomePage> {
                 ),
               ),
             ],
+          ),
+          IconButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const MyConnectionsPage(isElder: false),
+              ),
+            ),
+            tooltip: 'My Connections',
+            icon: const Icon(
+              Icons.people_alt_outlined,
+              color: _primaryBrown,
+            ),
           ),
           IconButton(
             icon: const Icon(
