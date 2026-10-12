@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
 import 'package:record/record.dart';
@@ -11,6 +12,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 import '../config/api_config.dart';
+import '../services/auth_service.dart';
+import '../services/published_content_signal.dart';
 
 enum RecordingState { notRecorded, recording, recorded, playing }
 
@@ -24,6 +27,7 @@ class ShareStoryPage extends StatefulWidget {
 }
 
 class _ShareStoryPageState extends State<ShareStoryPage> {
+  static const MethodChannel _lazyTtsChannel = MethodChannel('yathra/lazy_tts');
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _storyController = TextEditingController();
 
@@ -54,6 +58,7 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
   // Text to speech engine (YTH-35)
   final FlutterTts _flutterTts = FlutterTts();
   bool _isSpeaking = false;
+  bool _ttsInitialized = false;
 
   // Publishing / Updating / Deleting state
   bool _isPublishing = false;
@@ -151,7 +156,7 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
 
   @override
   void dispose() {
-    _flutterTts.stop();
+    if (_ttsInitialized) _flutterTts.stop();
     _timer?.cancel();
     _playerStateSubscription?.cancel();
     _audioRecorder.dispose();
@@ -461,6 +466,12 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     }
 
     try {
+      if (!_ttsInitialized) {
+        if (Platform.isAndroid) {
+          await _lazyTtsChannel.invokeMethod<void>('initialize');
+        }
+        _ttsInitialized = true;
+      }
       final String langCode = _getTtsLanguageCode();
       await _flutterTts.setLanguage(langCode);
       await _flutterTts.setSpeechRate(0.45);
@@ -547,7 +558,7 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
         response = await http
             .put(
               url,
-              headers: {'Content-Type': 'application/json'},
+              headers: await AuthService.authenticatedHeaders(),
               body: jsonEncode(body),
             )
             .timeout(const Duration(seconds: 10));
@@ -557,13 +568,14 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
         response = await http
             .post(
               url,
-              headers: {'Content-Type': 'application/json'},
+              headers: await AuthService.authenticatedHeaders(),
               body: jsonEncode(body),
             )
             .timeout(const Duration(seconds: 10));
       }
 
       if (response.statusCode == 200 || response.statusCode == 201) {
+        PublishedContentSignal.notify();
         final String successMessage = _isEditing
             ? 'Story updated successfully!'
             : 'Story published successfully!';
@@ -675,7 +687,7 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     try {
       final Uri url = Uri.parse('$_baseUrl/api/stories/$_editingStoryId');
       final http.Response response = await http
-          .delete(url, headers: {'Content-Type': 'application/json'})
+          .delete(url, headers: await AuthService.authenticatedHeaders())
           .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {

@@ -13,14 +13,17 @@ const publicUser = (user) => user && ({
   profileInfo: user.profileInfo,
 });
 const connectionQuery = () => Connection.find().populate('requester', 'name role profileInfo')
-  .populate('receiver', 'name role profileInfo');
+  .populate('receiver', 'name role profileInfo')
+  .select('-workspace.imageDataUri -workspaceItems.imageDataUri');
 const isMember = (connection, id) => connection.requester._id.toString() === id
   || connection.receiver._id.toString() === id;
-const acceptedConnection = async (id, userId) => {
+const acceptedConnection = async (id, userId, includeImage = false) => {
   if (!validId(id)) return null;
-  const connection = await Connection.findById(id)
+  let query = Connection.findById(id)
     .populate('requester', 'name role profileInfo')
     .populate('receiver', 'name role profileInfo');
+  if (!includeImage) query = query.select('-workspace.imageDataUri');
+  const connection = await query;
   return connection && connection.status === 'accepted' && isMember(connection, userId)
     ? connection : null;
 };
@@ -60,7 +63,10 @@ router.post('/', async (req, res) => {
     connection.communityId = String(communityId).slice(0, 120);
     connection.communityName = String(communityName).slice(0, 120);
     connection.messages = [];
-    connection.workspace = { title: '', content: '', instructions: '', status: 'draft', storyId: null, updatedAt: new Date() };
+    connection.chatConsentYouth = false;
+    connection.chatConsentElder = false;
+    connection.workspaceItems = [];
+    connection.workspace = { title: '', content: '', instructions: '', contentType: 'Story', language: 'Tamil', tags: [], reviewNote: '', submittedAt: null, reviewedAt: null, status: 'draft', storyId: null, updatedAt: new Date() };
     await connection.save();
   } else {
     connection = await Connection.create({
@@ -99,52 +105,194 @@ router.post('/:id/messages', async (req, res) => {
     ? connection.receiver
     : connection.requester;
   connection.messages.push({ sender: req.user._id, receiver, text });
+  connection.chatConsentYouth = false;
+  connection.chatConsentElder = false;
   await connection.save();
   res.status(201).json({ message: connection.messages[connection.messages.length - 1] });
 });
 
-router.get('/:id/workspace', async (req, res) => {
+router.get('/:id/chat-consent', async (req, res) => {
   const connection = await acceptedConnection(req.params.id, req.user._id.toString());
   if (!connection) return res.status(404).json({ message: 'Accepted connection not found.' });
-  res.json({ connectionId: connection._id, communityId: connection.communityId, communityName: connection.communityName, requester: publicUser(connection.requester), receiver: publicUser(connection.receiver), workspace: connection.workspace });
+  res.json({ youth: connection.chatConsentYouth, elder: connection.chatConsentElder });
+});
+
+router.put('/:id/chat-consent', async (req, res) => {
+  const connection = await acceptedConnection(req.params.id, req.user._id.toString());
+  if (!connection) return res.status(404).json({ message: 'Accepted connection not found.' });
+  if (typeof req.body?.consent !== 'boolean') return res.status(400).json({ message: 'Choose whether to consent to using this chat.' });
+  if (req.user.role === 'youth' && connection.requester._id.toString() === req.user._id.toString()) {
+    connection.chatConsentYouth = req.body.consent;
+  } else if (req.user.role === 'elder' && connection.receiver._id.toString() === req.user._id.toString()) {
+    connection.chatConsentElder = req.body.consent;
+  } else {
+    return res.status(403).json({ message: 'Only the connected youth and elder can consent.' });
+  }
+  await connection.save();
+  res.json({ youth: connection.chatConsentYouth, elder: connection.chatConsentElder });
+});
+
+const workspaceFor = (connection, workspaceItemId) => {
+  if (!workspaceItemId || workspaceItemId === 'legacy') return connection.workspace;
+  return connection.workspaceItems.id(workspaceItemId) || null;
+};
+
+router.post('/:id/workspace/items', async (req, res) => {
+  const connection = await acceptedConnection(req.params.id, req.user._id.toString());
+  if (!connection) return res.status(404).json({ message: 'Accepted connection not found.' });
+  const item = connection.workspaceItems.create({
+    contentType: 'Story',
+    language: req.user.profileInfo?.preferredLanguage || 'Tamil',
+    status: 'draft',
+    updatedAt: new Date(),
+  });
+  connection.workspaceItems.push(item);
+  await connection.save();
+  res.status(201).json({ item });
+});
+
+router.get('/:id/workspace', async (req, res) => {
+  const connection = await acceptedConnection(req.params.id, req.user._id.toString(), true);
+  if (!connection) return res.status(404).json({ message: 'Accepted connection not found.' });
+  const itemId = req.query.workspaceItemId?.toString();
+  const workspace = itemId ? workspaceFor(connection, itemId) : connection.workspace;
+  if (!workspace) return res.status(404).json({ message: 'Workspace content not found.' });
+  res.json({
+    connectionId: connection._id,
+    communityId: connection.communityId,
+    communityName: connection.communityName,
+    requester: publicUser(connection.requester),
+    receiver: publicUser(connection.receiver),
+    workspace,
+    workspaceItems: connection.workspaceItems,
+  });
 });
 
 router.put('/:id/workspace', async (req, res) => {
-  const connection = await acceptedConnection(req.params.id, req.user._id.toString());
+  const connection = await acceptedConnection(req.params.id, req.user._id.toString(), true);
   if (!connection) return res.status(404).json({ message: 'Accepted connection not found.' });
-  const { title, content, instructions } = req.body || {};
-  for (const [key, value] of Object.entries({ title, content, instructions })) {
+  const workspace = workspaceFor(connection, req.body?.workspaceItemId);
+  if (!workspace) return res.status(404).json({ message: 'Workspace content not found.' });
+  const isYouth = req.user.role === 'youth'
+    && connection.requester._id.toString() === req.user._id.toString();
+  const isElder = req.user.role === 'elder'
+    && connection.receiver._id.toString() === req.user._id.toString();
+  const mayEdit = (isYouth && ['draft', 'changes_requested'].includes(workspace.status))
+    || (isElder && ['draft', 'under_review'].includes(workspace.status));
+  if (!mayEdit) return res.status(403).json({ message: 'This contribution cannot be edited in its current review status.' });
+
+  const { title, content, instructions, culturalSignificance, category, imageDataUri, contentType, language, tags } = req.body || {};
+  for (const [key, value] of Object.entries({ title, content, instructions, culturalSignificance, category, language })) {
     if (value !== undefined && (typeof value !== 'string' || value.length > 20000)) return res.status(400).json({ message: `Invalid ${key}.` });
   }
-  connection.workspace.title = typeof title === 'string' ? title.trim() : connection.workspace.title;
-  connection.workspace.content = typeof content === 'string' ? content.trim() : connection.workspace.content;
-  connection.workspace.instructions = typeof instructions === 'string' ? instructions.trim() : connection.workspace.instructions;
-  connection.workspace.updatedAt = new Date();
+  if (imageDataUri !== undefined && (typeof imageDataUri !== 'string' || imageDataUri.length > 2800000 || (imageDataUri && !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$/.test(imageDataUri)))) {
+    return res.status(400).json({ message: 'Choose a valid image under 2 MB.' });
+  }
+  if (contentType !== undefined && !['Story', 'Recipe', 'Tradition', 'Song', 'Festival', 'Other'].includes(contentType)) {
+    return res.status(400).json({ message: 'Choose a valid contribution type.' });
+  }
+  if (tags !== undefined && (!Array.isArray(tags) || tags.length > 12 || tags.some((tag) => typeof tag !== 'string' || tag.trim().length > 40))) {
+    return res.status(400).json({ message: 'Tags must contain up to 12 short text values.' });
+  }
+  workspace.title = typeof title === 'string' ? title.trim() : workspace.title;
+  workspace.content = typeof content === 'string' ? content.trim() : workspace.content;
+  workspace.instructions = typeof instructions === 'string' ? instructions.trim() : workspace.instructions;
+  workspace.culturalSignificance = typeof culturalSignificance === 'string' ? culturalSignificance.trim() : workspace.culturalSignificance;
+  workspace.category = typeof category === 'string' ? category.trim() : workspace.category;
+  if (typeof imageDataUri === 'string') workspace.imageDataUri = imageDataUri;
+  workspace.contentType = contentType || workspace.contentType;
+  workspace.language = typeof language === 'string' && language.trim() ? language.trim() : workspace.language;
+  if (Array.isArray(tags)) workspace.tags = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
+  workspace.updatedAt = new Date();
   await connection.save();
-  res.json({ workspace: connection.workspace });
+  res.json({ workspace });
+});
+
+router.post('/:id/submit', async (req, res) => {
+  const connection = await acceptedConnection(req.params.id, req.user._id.toString());
+  if (!connection) return res.status(404).json({ message: 'Accepted connection not found.' });
+  const isRequester = req.user.role === 'youth'
+    && connection.requester._id.toString() === req.user._id.toString();
+  if (!isRequester) return res.status(403).json({ message: 'Only the connected youth can submit this contribution for review.' });
+  const workspace = workspaceFor(connection, req.body?.workspaceItemId);
+  if (!workspace) return res.status(404).json({ message: 'Workspace content not found.' });
+  if (!['draft', 'changes_requested'].includes(workspace.status)) {
+    return res.status(400).json({ message: 'This contribution is already waiting for review or has been published.' });
+  }
+  if (!workspace.title.trim() || !workspace.content.trim()) {
+    return res.status(400).json({ message: 'Add a title and contribution before sending it for review.' });
+  }
+  workspace.status = 'under_review';
+  workspace.reviewNote = '';
+  workspace.submittedAt = new Date();
+  workspace.updatedAt = new Date();
+  await connection.save();
+  res.json({ message: 'Contribution sent to the elder for review.', workspace });
+});
+
+router.post('/:id/request-changes', async (req, res) => {
+  const connection = await acceptedConnection(req.params.id, req.user._id.toString());
+  if (!connection) return res.status(404).json({ message: 'Accepted connection not found.' });
+  const isReceiver = req.user.role === 'elder'
+    && connection.receiver._id.toString() === req.user._id.toString();
+  if (!isReceiver) return res.status(403).json({ message: 'Only the connected elder can request changes.' });
+  const workspace = workspaceFor(connection, req.body?.workspaceItemId);
+  if (!workspace) return res.status(404).json({ message: 'Workspace content not found.' });
+  if (workspace.status !== 'under_review') return res.status(400).json({ message: 'There is no contribution waiting for review.' });
+  const note = typeof req.body?.note === 'string' ? req.body.note.trim() : '';
+  if (note.length > 2000) return res.status(400).json({ message: 'Review note is too long.' });
+  workspace.status = 'changes_requested';
+  workspace.reviewNote = note;
+  workspace.reviewedAt = new Date();
+  workspace.updatedAt = new Date();
+  await connection.save();
+  res.json({ message: 'Changes requested from the youth.', workspace });
+});
+
+router.post('/:id/approve', async (req, res) => {
+  const connection = await acceptedConnection(req.params.id, req.user._id.toString());
+  if (!connection) return res.status(404).json({ message: 'Accepted connection not found.' });
+  const isReceiver = req.user.role === 'elder'
+    && connection.receiver._id.toString() === req.user._id.toString();
+  if (!isReceiver) return res.status(403).json({ message: 'Only the connected elder can approve this contribution.' });
+  const workspace = workspaceFor(connection, req.body?.workspaceItemId);
+  if (!workspace) return res.status(404).json({ message: 'Workspace content not found.' });
+  if (workspace.status !== 'under_review') return res.status(400).json({ message: 'Only a contribution under review can be approved.' });
+  if (!workspace.title.trim() || !workspace.content.trim()) return res.status(400).json({ message: 'Add a title and cultural content before approving.' });
+  workspace.status = 'approved';
+  workspace.reviewedAt = new Date();
+  workspace.updatedAt = new Date();
+  await connection.save();
+  res.json({ message: 'Contribution approved. It is ready to publish.', workspace });
 });
 
 router.post('/:id/publish', async (req, res) => {
-  const connection = await acceptedConnection(req.params.id, req.user._id.toString());
+  const connection = await acceptedConnection(req.params.id, req.user._id.toString(), true);
   if (!connection) return res.status(404).json({ message: 'Accepted connection not found.' });
-  const workspace = connection.workspace;
+  const workspace = workspaceFor(connection, req.body?.workspaceItemId);
+  if (!workspace) return res.status(404).json({ message: 'Workspace content not found.' });
+  const isReviewingElder = req.user.role === 'elder'
+    && connection.receiver._id.toString() === req.user._id.toString();
+  if (!isReviewingElder) return res.status(403).json({ message: 'Only the connected elder can publish a reviewed contribution.' });
+  if (workspace.status !== 'approved') return res.status(400).json({ message: 'Approve the contribution before publishing.' });
   if (!workspace.title.trim() || !workspace.content.trim()) return res.status(400).json({ message: 'Add a title and cultural content before publishing.' });
   const story = await Story.create({
-    title: workspace.title, category: connection.communityName || 'Culture Connect',
-    language: connection.requester.profileInfo?.preferredLanguage
+    title: workspace.title, category: workspace.category || connection.communityName || 'Culture Connect',
+    language: workspace.language || connection.requester.profileInfo?.preferredLanguage
       || connection.receiver.profileInfo?.preferredLanguage
       || 'English',
-    storyText: [workspace.content, workspace.instructions].filter(Boolean).join('\n\n'),
-    tags: ['collaborative', 'culture-connect'], isDeleted: false,
+    storyText: [workspace.content, workspace.instructions, workspace.culturalSignificance].filter(Boolean).join('\n\n'),
+    imageDataUri: workspace.imageDataUri || '',
+    tags: [...new Set(['collaborative', 'culture-connect', (workspace.contentType || 'Story').toLowerCase(), ...(workspace.tags || [])])], isDeleted: false,
     connection: connection._id, communityId: connection.communityId,
     communityName: connection.communityName, contributors: [connection.requester._id, connection.receiver._id],
     publishedBy: req.user._id,
   });
-  connection.workspace.status = 'published';
-  connection.workspace.storyId = story._id;
-  connection.workspace.updatedAt = new Date();
+  workspace.status = 'published';
+  workspace.storyId = story._id;
+  workspace.updatedAt = new Date();
   await connection.save();
-  res.status(201).json({ message: 'Story published.', story });
+  res.status(201).json({ message: 'Story published.', story, workspace });
 });
 
 module.exports = router;

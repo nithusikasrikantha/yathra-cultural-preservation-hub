@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/story.dart';
 import '../services/bookmark_service.dart';
+import '../services/published_content_signal.dart';
 import '../services/story_service.dart';
 import '../services/youth_dummy_content_store.dart';
 import '../widgets/youth_story_card.dart';
@@ -46,6 +47,7 @@ class _YouthHomePageState extends State<YouthHomePage> {
     super.initState();
     _bookmarkService.addListener(_onBookmarksChanged);
     _dummyStore.addListener(_onBookmarksChanged);
+    PublishedContentSignal.revision.addListener(_load);
     _load();
   }
 
@@ -53,6 +55,7 @@ class _YouthHomePageState extends State<YouthHomePage> {
   void dispose() {
     _bookmarkService.removeListener(_onBookmarksChanged);
     _dummyStore.removeListener(_onBookmarksChanged);
+    PublishedContentSignal.revision.removeListener(_load);
     super.dispose();
   }
 
@@ -148,9 +151,39 @@ class _YouthHomePageState extends State<YouthHomePage> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.menu_rounded, color: _primaryBrown, size: 28),
-          onPressed: () {},
+        leading: PopupMenuButton<String>(
+          icon: const Icon(
+            Icons.more_vert_rounded,
+            color: _primaryBrown,
+            size: 28,
+          ),
+          color: const Color(0xFFFFFBF4),
+          elevation: 8,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          onSelected: (value) {
+            if (value == 'projects') {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const WorkspacePage(isElder: false),
+                ),
+              );
+            }
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(
+              value: 'projects',
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.folder_outlined, size: 20),
+                  SizedBox(width: 10),
+                  Text('My Projects'),
+                ],
+              ),
+            ),
+          ],
         ),
         centerTitle: true,
         title: Row(
@@ -182,30 +215,6 @@ class _YouthHomePageState extends State<YouthHomePage> {
           ],
         ),
         actions: [
-          Stack(
-            children: [
-              IconButton(
-                icon: const Icon(
-                  Icons.notifications_none_rounded,
-                  color: _primaryBrown,
-                  size: 26,
-                ),
-                onPressed: () {},
-              ),
-              Positioned(
-                right: 12,
-                top: 12,
-                child: Container(
-                  width: 9,
-                  height: 9,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFD9534F),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ),
-            ],
-          ),
           IconButton(
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
@@ -213,10 +222,7 @@ class _YouthHomePageState extends State<YouthHomePage> {
               ),
             ),
             tooltip: 'My Connections',
-            icon: const Icon(
-              Icons.people_alt_outlined,
-              color: _primaryBrown,
-            ),
+            icon: const Icon(Icons.people_alt_outlined, color: _primaryBrown),
           ),
           IconButton(
             icon: const Icon(

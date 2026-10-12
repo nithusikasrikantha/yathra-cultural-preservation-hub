@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../screens/login_screen.dart';
+import '../../services/auth_service.dart';
 
 class ElderProfilePage extends StatefulWidget {
   const ElderProfilePage({
@@ -20,6 +22,34 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
   static const Color _accentBrown = Color(0xFF6B4226);
   static const Color _cardBg = Color(0xFFFFFDF8);
   static const Color _btnBg = Color(0xFFF5EBE1);
+  final AuthService _authService = AuthService();
+
+  Future<void> _logout() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Log out?'),
+        content: const Text('You can sign in again to continue your work.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Log out'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    await _authService.logout();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
+      (_) => false,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -67,8 +97,9 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.more_vert, color: _primaryBrown, size: 24),
-            onPressed: () {},
+            tooltip: 'Log out',
+            icon: const Icon(Icons.logout_rounded, color: _primaryBrown, size: 24),
+            onPressed: _logout,
           ),
           const SizedBox(width: 6),
         ],
@@ -102,6 +133,19 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
               // Connections
               _buildConnectionsSection(),
 
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _logout,
+                  icon: const Icon(Icons.logout_rounded),
+                  label: const Text('Log out'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red.shade800,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
+              ),
               const SizedBox(height: 24),
             ],
           ),

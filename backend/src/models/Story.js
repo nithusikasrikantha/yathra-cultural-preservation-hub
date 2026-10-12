@@ -26,6 +26,7 @@ const storySchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    imageDataUri: { type: String, default: '' },
     tags: {
       type: [String],
       default: [],

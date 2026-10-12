@@ -1,8 +1,21 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../models/community_theme.dart';
+import '../models/story.dart';
+import '../services/published_content_signal.dart';
+import '../services/story_service.dart';
 import '../theme/app_theme.dart';
 import 'community_details_page.dart';
+import 'youth_story_detail_page.dart';
+
+String _fallbackArt(String category) => switch (category.toLowerCase()) {
+  'performing arts' => 'assets/images/onboarding/performing_arts.png',
+  'history' => 'assets/images/onboarding/connection.png',
+  'local dialects' => 'assets/images/onboarding/stories.png',
+  _ => 'assets/images/onboarding/heritage.png',
+};
 
 /// Explore Page (Page 2 in the required flow)
 class ExplorePage extends StatefulWidget {
@@ -18,12 +31,38 @@ class _ExplorePageState extends State<ExplorePage> {
   static const Color _accentBrown = Color(0xFF6B4226);
 
   final TextEditingController _searchController = TextEditingController();
+  final StoryService _storyService = const StoryService();
   final List<CulturalTheme> _themes = MockCulturalData.getPopularThemes();
   final List<CategoryItem> _categories = MockCulturalData.getCategories();
+  List<Story> _publishedStories = const [];
+  bool _storiesLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    PublishedContentSignal.revision.addListener(_reloadPublishedStories);
+    _loadPublishedStories();
+  }
+
+  Future<void> _loadPublishedStories() async {
+    try {
+      final page = await _storyService.fetchStories(page: 1, limit: 6);
+      if (!mounted) return;
+      setState(() {
+        _publishedStories = page.items;
+        _storiesLoading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _storiesLoading = false);
+    }
+  }
+
+  void _reloadPublishedStories() => _loadPublishedStories();
 
   @override
   void dispose() {
     _searchController.dispose();
+    PublishedContentSignal.revision.removeListener(_reloadPublishedStories);
     super.dispose();
   }
 
@@ -35,8 +74,32 @@ class _ExplorePageState extends State<ExplorePage> {
     );
   }
 
+  void _openCategory(CategoryItem category) {
+    final relatedThemes = _themes
+        .where((theme) => theme.category.toLowerCase() == category.title.toLowerCase())
+        .toList();
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ExploreCategoryPage(
+          category: category,
+          themes: relatedThemes,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final query = _searchController.text.trim().toLowerCase();
+    final visibleThemes = _themes.where((theme) {
+      final searchable =
+          '${theme.title} ${theme.category} ${theme.description}'.toLowerCase();
+      return query.isEmpty || searchable.contains(query);
+    }).toList();
+    final visibleCategories = _categories.where((category) {
+      final searchable = '${category.title} ${category.subtitle}'.toLowerCase();
+      return query.isEmpty || searchable.contains(query);
+    }).toList();
     return Scaffold(
       backgroundColor: _backgroundColor,
       body: SafeArea(
@@ -73,7 +136,7 @@ class _ExplorePageState extends State<ExplorePage> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '20+ Curated Oral Traditions',
+                        '${visibleThemes.length} cultural communities',
                         style: TextStyle(
                           fontSize: 12.5,
                           color: _primaryBrown.withValues(alpha: 0.65),
@@ -92,23 +155,37 @@ class _ExplorePageState extends State<ExplorePage> {
               const SizedBox(height: 14),
 
               // Horizontal Scrollable Popular Cultural Theme Cards
-              SizedBox(
-                height: 185,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  physics: const BouncingScrollPhysics(),
-                  itemCount: _themes.length,
-                  separatorBuilder: (context, index) =>
-                      const SizedBox(width: 14),
-                  itemBuilder: (context, index) {
-                    final theme = _themes[index];
-                    return _ThemeCard(
-                      theme: theme,
-                      onTap: () => _openCommunityDetails(theme),
-                    );
-                  },
+              if (visibleThemes.isNotEmpty)
+                SizedBox(
+                  height: 185,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    itemCount: visibleThemes.length,
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(width: 14),
+                    itemBuilder: (context, index) {
+                      final theme = visibleThemes[index];
+                      return _ThemeCard(
+                        theme: theme,
+                        onTap: () => _openCommunityDetails(theme),
+                      );
+                    },
+                  ),
+                )
+              else
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Text(
+                    'No cultural communities match your search yet.',
+                    style: TextStyle(color: Color(0xFF745F50)),
+                  ),
                 ),
-              ),
 
               const SizedBox(height: 28),
 
@@ -125,7 +202,7 @@ class _ExplorePageState extends State<ExplorePage> {
                     ),
                   ),
                   TextButton(
-                    onPressed: () {},
+                    onPressed: () => setState(_searchController.clear),
                     style: TextButton.styleFrom(
                       padding: EdgeInsets.zero,
                       minimumSize: Size.zero,
@@ -159,7 +236,7 @@ class _ExplorePageState extends State<ExplorePage> {
               GridView.builder(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                itemCount: _categories.length,
+                itemCount: visibleCategories.length,
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 3,
                   crossAxisSpacing: 12,
@@ -167,16 +244,87 @@ class _ExplorePageState extends State<ExplorePage> {
                   childAspectRatio: 0.85,
                 ),
                 itemBuilder: (context, index) {
-                  final category = _categories[index];
-                  return _CategoryCard(category: category);
+                  final category = visibleCategories[index];
+                  return _CategoryCard(
+                    category: category,
+                    onTap: () => _openCategory(category),
+                  );
                 },
               ),
+
+              const SizedBox(height: 24),
+              _buildPublishedStoriesSection(),
 
               const SizedBox(height: 24),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildPublishedStoriesSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Recently Published',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: _primaryBrown,
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (_storiesLoading)
+          const Center(child: CircularProgressIndicator())
+        else if (_publishedStories.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Text('Elder-reviewed community stories will appear here.'),
+          )
+        else
+          ..._publishedStories.map(
+            (story) => Card(
+              color: Colors.white,
+              margin: const EdgeInsets.only(bottom: 10),
+              child: ListTile(
+                leading: story.imageDataUri == null
+                    ? Container(
+                        width: 52,
+                        height: 52,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEADCC9),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.auto_stories_rounded, color: _accentBrown),
+                      )
+                    : ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.memory(
+                          base64Decode(story.imageDataUri!.split(',').last),
+                          width: 52,
+                          height: 52,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                title: Text(story.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: Text('${story.category} • ${story.language}'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => YouthStoryDetailPage(storyId: story.id),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -252,6 +400,7 @@ class _ExplorePageState extends State<ExplorePage> {
       ),
       child: TextField(
         controller: _searchController,
+        onChanged: (_) => setState(() {}),
         decoration: InputDecoration(
           hintText: 'Search stories, traditions, recipes...',
           hintStyle: TextStyle(
@@ -298,6 +447,18 @@ class _ThemeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final image = Image.network(
+      theme.imageUrl,
+      height: 105,
+      width: double.infinity,
+      fit: BoxFit.cover,
+      errorBuilder: (_, _, _) => Image.asset(
+        _fallbackArt(theme.category),
+        height: 105,
+        width: double.infinity,
+        fit: BoxFit.cover,
+      ),
+    );
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -321,24 +482,7 @@ class _ThemeCard extends StatelessWidget {
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(14),
               ),
-              child: Image.network(
-                theme.imageUrl,
-                height: 105,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    height: 105,
-                    width: double.infinity,
-                    color: const Color(0xFFEADCC9),
-                    child: const Icon(
-                      Icons.restaurant_outlined,
-                      color: _primaryBrown,
-                      size: 36,
-                    ),
-                  );
-                },
-              ),
+              child: image,
             ),
 
             // Text content
@@ -374,19 +518,34 @@ class _ThemeCard extends StatelessWidget {
       ),
     );
   }
+
 }
 
 /// Category Card in Grid
 class _CategoryCard extends StatelessWidget {
   final CategoryItem category;
+  final VoidCallback onTap;
 
-  const _CategoryCard({required this.category});
+  const _CategoryCard({required this.category, required this.onTap});
 
   static const Color _primaryBrown = Color(0xFF4A2C1A);
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final image = Image.network(
+      category.imageUrl,
+      width: double.infinity,
+      fit: BoxFit.cover,
+      errorBuilder: (_, _, _) => Image.asset(
+        _fallbackArt(category.title),
+        width: double.infinity,
+        fit: BoxFit.cover,
+      ),
+    );
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.9),
         borderRadius: BorderRadius.circular(14),
@@ -406,23 +565,7 @@ class _CategoryCard extends StatelessWidget {
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(14),
               ),
-              child: Image.network(
-                category.imageUrl,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    color: const Color(0xFFEADCC9),
-                    child: const Center(
-                      child: Icon(
-                        Icons.category_outlined,
-                        color: _primaryBrown,
-                        size: 28,
-                      ),
-                    ),
-                  );
-                },
-              ),
+              child: image,
             ),
           ),
           Padding(
@@ -455,6 +598,150 @@ class _CategoryCard extends StatelessWidget {
           ),
         ],
       ),
+      ),
     );
   }
+}
+
+class ExploreCategoryPage extends StatelessWidget {
+  const ExploreCategoryPage({
+    super.key,
+    required this.category,
+    required this.themes,
+  });
+
+  final CategoryItem category;
+  final List<CulturalTheme> themes;
+
+  String get _description => switch (category.categoryKey) {
+    'history' =>
+      'Explore local landmarks, temple heritage, inscriptions and the memories elders share about their communities.',
+    'food' =>
+      'Discover family recipes, regional ingredients and the stories behind traditional cooking.',
+    'performing_arts' =>
+      'Learn about dance forms, ceremonial clothing, rhythms and the people who keep these performances alive.',
+    'music' =>
+      'Listen to folk songs, work chants, lullabies and the instruments and memories carried with them.',
+    'dialects' =>
+      'Collect regional words, everyday sayings and pronunciation with context from local speakers.',
+    _ =>
+      'Explore family knowledge of home gardens, traditional plants and preparation customs for cultural learning.',
+  };
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: const Color(0xFFF8F3EA),
+    appBar: AppBar(title: Text(category.title)),
+    body: ListView(
+      padding: const EdgeInsets.all(18),
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(22),
+          child: SizedBox(
+            height: 220,
+            child: Image.network(
+              category.imageUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => Image.asset(
+                _fallbackArt(category.title),
+                fit: BoxFit.cover,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 18),
+        Text(
+          category.title,
+          style: const TextStyle(
+            color: Color(0xFF4A2C1A),
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          _description,
+          style: const TextStyle(
+            color: Color(0xFF655344),
+            fontSize: 15,
+            height: 1.5,
+          ),
+        ),
+        const SizedBox(height: 24),
+        const Text(
+          'Communities to explore',
+          style: TextStyle(
+            color: Color(0xFF4A2C1A),
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (themes.isEmpty)
+          const Text('Community content will appear here as elders share it.')
+        else
+          for (final theme in themes)
+            Card(
+              color: Colors.white,
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => CommunityDetailsPage(theme: theme),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 92,
+                      height: 92,
+                      child: Image.network(
+                        theme.imageUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => Image.asset(
+                          _fallbackArt(theme.category),
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              theme.title,
+                              style: const TextStyle(
+                                color: Color(0xFF4A2C1A),
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 5),
+                            Text(
+                              '${theme.membersCount}  •  ${theme.activeEldersCount}',
+                              style: const TextStyle(
+                                color: Color(0xFF806A58),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                      child: Icon(
+                        Icons.chevron_right,
+                        color: Color(0xFF6B4226),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+      ],
+    ),
+  );
 }

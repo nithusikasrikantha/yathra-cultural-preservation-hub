@@ -1,7 +1,12 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../models/connection_model.dart';
 import '../models/user_model.dart';
 import '../services/culture_connect_service.dart';
+import '../services/culture_assistant_fallback.dart';
+import '../services/published_content_signal.dart';
 import 'youth_story_detail_page.dart';
 
 class MyConnectionsPage extends StatefulWidget {
@@ -21,6 +26,19 @@ class _MyConnectionsPageState extends State<MyConnectionsPage>
   List<Connection> _items = [];
   bool _loading = true;
   String? _error;
+
+  String _workspaceStatusLabel(Connection connection) {
+    final status = connection.workspaceItems.isNotEmpty
+        ? connection.workspaceItems.last['status']?.toString() ?? connection.workspaceStatus
+        : connection.workspaceStatus;
+    return switch (status) {
+        'under_review' => 'Under Review',
+        'changes_requested' => 'Changes Requested',
+        'approved' => 'Approved',
+        'published' => 'Published',
+        _ => 'Workspace Draft',
+      };
+  }
   @override
   void initState() {
     super.initState();
@@ -56,6 +74,20 @@ class _MyConnectionsPageState extends State<MyConnectionsPage>
     }
   }
 
+  Future<void> _respondToRequest(Connection connection, String status) async {
+    try {
+      await _service.respond(connection.id, status);
+      await _load();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+    }
+  }
+
   Map<String, dynamic>? _peer(Connection c) =>
       widget.isElder ? c.requester : c.receiver;
   List<Connection> get _filtered {
@@ -83,7 +115,9 @@ class _MyConnectionsPageState extends State<MyConnectionsPage>
   void _openWorkspace(Connection c) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => WorkspacePage(connection: c)),
+      MaterialPageRoute(
+        builder: (_) => WorkspacePage(connection: c, isElder: widget.isElder),
+      ),
     ).then((_) => _load());
   }
 
@@ -129,16 +163,27 @@ class _MyConnectionsPageState extends State<MyConnectionsPage>
                     itemBuilder: (context, i) {
                       final c = _filtered[i];
                       final peer = _peer(c) ?? {};
+                      final profile = peer['profileInfo'] is Map
+                          ? Map<String, dynamic>.from(
+                              peer['profileInfo'] as Map,
+                            )
+                          : <String, dynamic>{};
+                      final avatar = profile['avatar']?.toString();
                       final name = peer['name']?.toString() ?? 'YATHRA member';
                       return Card(
                         color: Colors.white,
                         child: ListTile(
-                          leading: const CircleAvatar(
-                            backgroundColor: Color(0xFFEADCC9),
-                            child: Icon(
-                              Icons.person_outline,
-                              color: Color(0xFF4A2C1A),
-                            ),
+                          leading: CircleAvatar(
+                            backgroundColor: const Color(0xFFEADCC9),
+                            backgroundImage: avatar == null || avatar.isEmpty
+                                ? null
+                                : NetworkImage(avatar),
+                            child: avatar == null || avatar.isEmpty
+                                ? const Icon(
+                                    Icons.person_outline,
+                                    color: Color(0xFF4A2C1A),
+                                  )
+                                : null,
                           ),
                           title: Text(
                             name,
@@ -146,9 +191,7 @@ class _MyConnectionsPageState extends State<MyConnectionsPage>
                           ),
                           subtitle: Text(
                             c.status == 'accepted'
-                                ? (c.communityName.isEmpty
-                                      ? 'Connected'
-                                      : c.communityName)
+                                ? '${c.communityName.isEmpty ? 'Connected' : c.communityName} • ${_workspaceStatusLabel(c)}'
                                 : c.status == 'rejected'
                                 ? 'Request declined'
                                 : 'Pending',
@@ -165,9 +208,31 @@ class _MyConnectionsPageState extends State<MyConnectionsPage>
                                       onPressed: () => _openChat(c),
                                     ),
                                     IconButton(
-                                      tooltip: 'Workspace',
+                                      tooltip: 'My Workspace',
                                       icon: const Icon(Icons.edit_note),
                                       onPressed: () => _openWorkspace(c),
+                                    ),
+                                  ],
+                                )
+                              : widget.isElder && c.status == 'pending'
+                              ? Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      tooltip: 'Accept request',
+                                      color: const Color(0xFF3D7A43),
+                                      icon: const Icon(
+                                        Icons.check_circle_outline,
+                                      ),
+                                      onPressed: () =>
+                                          _respondToRequest(c, 'accepted'),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Reject request',
+                                      color: const Color(0xFF9D3D20),
+                                      icon: const Icon(Icons.cancel_outlined),
+                                      onPressed: () =>
+                                          _respondToRequest(c, 'rejected'),
                                     ),
                                   ],
                                 )
@@ -318,6 +383,10 @@ class _ChatPageState extends State<ChatPage> {
   String? _error;
   bool _sending = false;
   String? _myId;
+  bool _consentYouth = false;
+  bool _consentElder = false;
+  bool _assistantBusy = false;
+  bool get _isYouth => _myId != null && widget.connection.requesterId == _myId;
   @override
   void initState() {
     super.initState();
@@ -339,14 +408,239 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _load() async {
     try {
       final m = await _service.getMessages(widget.connection.id);
+      final consent = await _service.getChatConsent(widget.connection.id);
       if (mounted) {
         setState(() {
           _messages = m;
+          _consentYouth = consent['youth'] == true;
+          _consentElder = consent['elder'] == true;
           _error = null;
         });
       }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
+    }
+  }
+
+  Future<void> _setConsent(bool consent) async {
+    try {
+      final value = await _service.setChatConsent(
+        widget.connection.id,
+        consent,
+      );
+      if (mounted)
+        setState(() {
+          _consentYouth = value['youth'] == true;
+          _consentElder = value['elder'] == true;
+        });
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              consent
+                  ? 'Your consent is saved. Both participants must consent before creating a draft.'
+                  : 'Your consent was withdrawn.',
+            ),
+          ),
+        );
+    } catch (e) {
+      if (mounted) _showChatError(e);
+    }
+  }
+
+  void _showChatError(Object e) => ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+  );
+
+  Future<void> _suggestQuestions(String action) async {
+    if (_assistantBusy) return;
+    setState(() => _assistantBusy = true);
+    try {
+      List<String> questions;
+      var usingFallback = false;
+      try {
+        final response = await _service.askAssistant(
+          action,
+          widget.connection.id,
+          topic: widget.connection.communityName,
+        );
+        final result = Map<String, dynamic>.from(response['result'] as Map);
+        questions = (result['questions'] as List? ?? [])
+            .map((e) => e.toString())
+            .toList();
+      } catch (_) {
+        usingFallback = true;
+        final lastElderReply =
+            _messages.reversed
+                .firstWhere(
+                  (message) => message['sender']?.toString() != _myId,
+                  orElse: () => const {},
+                )['text']
+                ?.toString() ??
+            '';
+        questions = CultureAssistantFallback.questions(
+          topic: widget.connection.communityName,
+          answer: action == 'follow-up-questions' ? lastElderReply : '',
+        );
+      }
+      if (!mounted || questions.isEmpty) return;
+      await showModalBottomSheet<void>(
+        context: context,
+        builder: (sheetContext) => SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            shrinkWrap: true,
+            children: [
+              Text(
+                action == 'conversation-starters'
+                    ? 'Suggested Questions'
+                    : 'Follow-up Questions',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              if (usingFallback)
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text(
+                    'AI service is unavailable. These are basic prompts based on your conversation.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+              const SizedBox(height: 10),
+              for (final question in questions)
+                ListTile(
+                  leading: const Icon(Icons.auto_awesome),
+                  title: Text(question),
+                  onTap: () {
+                    _input.text = question;
+                    _input.selection = TextSelection.collapsed(
+                      offset: question.length,
+                    );
+                    Navigator.pop(sheetContext);
+                  },
+                ),
+            ],
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) _showChatError(e);
+    } finally {
+      if (mounted) setState(() => _assistantBusy = false);
+    }
+  }
+
+  Future<void> _createDraft() async {
+    if (!_isYouth || _assistantBusy) return;
+    if (_messages.isEmpty) {
+      _showChatError(
+        Exception('Start the conversation before creating a draft.'),
+      );
+      return;
+    }
+    if (!_consentYouth) {
+      await _setConsent(true);
+      return;
+    }
+    if (!_consentElder) {
+      _showChatError(
+        Exception('Waiting for the elder to consent to using this chat.'),
+      );
+      return;
+    }
+    setState(() => _assistantBusy = true);
+    try {
+      Map<String, dynamic> draft;
+      var usingFallback = false;
+      try {
+        final response = await _service.askAssistant(
+          'chat-to-story',
+          widget.connection.id,
+        );
+        draft = Map<String, dynamic>.from(response['result'] as Map);
+      } catch (_) {
+        usingFallback = true;
+        draft = CultureAssistantFallback.chatDraft(
+          topic: widget.connection.communityName,
+          messages: _messages,
+          currentUserId: _myId ?? '',
+        );
+      }
+      if (!mounted) return;
+      final useDraft = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(
+            usingFallback ? 'Conversation Draft' : 'AI Draft Preview',
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (usingFallback)
+                  const Text(
+                    'AI service is unavailable. This draft uses only the messages in this chat.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                Text(
+                  draft['title']?.toString() ?? '',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(draft['description']?.toString() ?? ''),
+                const SizedBox(height: 12),
+                Text(draft['content']?.toString() ?? ''),
+                const SizedBox(height: 12),
+                Text(
+                  'Cultural significance: ${draft['culturalSignificance'] ?? ''}',
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Review every detail with the elder before sending for review.',
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Close'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Use in Workspace'),
+            ),
+          ],
+        ),
+      );
+      if (useDraft != true || !mounted) return;
+      final created = await _service.createWorkspaceItem(widget.connection.id);
+      final workspaceItem = Map<String, dynamic>.from(created['item'] as Map);
+      final workspaceItemId = workspaceItem['_id']?.toString();
+      await _service.saveWorkspace(
+        widget.connection.id,
+        workspaceItemId: workspaceItemId,
+        title: draft['title']?.toString() ?? '',
+        content: draft['content']?.toString() ?? '',
+        instructions: draft['description']?.toString() ?? '',
+        culturalSignificance:
+            draft['culturalSignificance']?.toString() ??
+            'To be confirmed by the elder.',
+      );
+      if (!mounted) return;
+      await Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => WorkspaceEditorPage(
+            connection: widget.connection,
+            isElder: false,
+            workspaceItemId: workspaceItemId,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) _showChatError(e);
+    } finally {
+      if (mounted) setState(() => _assistantBusy = false);
     }
   }
 
@@ -380,7 +674,15 @@ class _ChatPageState extends State<ChatPage> {
           Expanded(child: Text(widget.peer.name)),
         ],
       ),
-      actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh))],
+      actions: [
+        if (_isYouth)
+          TextButton.icon(
+            onPressed: _assistantBusy ? null : _createDraft,
+            icon: const Icon(Icons.auto_awesome, size: 18),
+            label: const Text('AI Draft'),
+          ),
+        IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
+      ],
     ),
     body: Column(
       children: [
@@ -427,6 +729,18 @@ class _ChatPageState extends State<ChatPage> {
                           ),
                         ),
                       ],
+                      if (_isYouth && !mine)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            onPressed: _assistantBusy
+                                ? null
+                                : () =>
+                                      _suggestQuestions('follow-up-questions'),
+                            icon: const Icon(Icons.auto_awesome, size: 16),
+                            label: const Text('Ask Follow-up'),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -438,21 +752,61 @@ class _ChatPageState extends State<ChatPage> {
           top: false,
           child: Padding(
             padding: const EdgeInsets.all(10),
-            child: Row(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(
-                  child: TextField(
-                    controller: _input,
-                    minLines: 1,
-                    maxLines: 4,
-                    decoration: const InputDecoration(
-                      hintText: 'Type a message...',
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _consentYouth && _consentElder
+                            ? 'Both participants consented to chat draft use.'
+                            : 'Chat-to-draft requires both participants consent.',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => _setConsent(
+                        !(_isYouth ? _consentYouth : _consentElder),
+                      ),
+                      child: Text(
+                        (_isYouth ? _consentYouth : _consentElder)
+                            ? 'Withdraw'
+                            : 'I Consent',
+                      ),
+                    ),
+                  ],
+                ),
+                if (_isYouth)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      onPressed: _assistantBusy
+                          ? null
+                          : () => _suggestQuestions('conversation-starters'),
+                      icon: const Icon(Icons.auto_awesome),
+                      label: Text(
+                        _assistantBusy ? 'Thinking...' : 'Suggest Questions',
+                      ),
                     ),
                   ),
-                ),
-                IconButton(
-                  onPressed: _sending ? null : _send,
-                  icon: const Icon(Icons.send),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _input,
+                        minLines: 1,
+                        maxLines: 4,
+                        decoration: const InputDecoration(
+                          hintText: 'Type a message...',
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: _sending ? null : _send,
+                      icon: const Icon(Icons.send),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -464,26 +818,386 @@ class _ChatPageState extends State<ChatPage> {
 }
 
 class WorkspacePage extends StatefulWidget {
-  const WorkspacePage({super.key, required this.connection});
-  final Connection connection;
+  const WorkspacePage({super.key, this.connection, this.isElder = false});
+  final Connection? connection;
+  final bool isElder;
   @override
   State<WorkspacePage> createState() => _WorkspacePageState();
 }
 
-class _WorkspacePageState extends State<WorkspacePage>
-    with SingleTickerProviderStateMixin {
+class _WorkspacePageState extends State<WorkspacePage> {
+  final _service = CultureConnectService();
+  List<Connection> _projects = [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProjects();
+  }
+
+  Future<void> _loadProjects() async {
+    if (mounted)
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    try {
+      final connections = await _service.getConnections();
+      final projects = connections
+          .where(
+            (c) =>
+                c.status == 'accepted' &&
+                (widget.connection == null || c.id == widget.connection!.id),
+          )
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        _projects = projects;
+        _loading = false;
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  String _statusLabel(String status) => switch (status) {
+    'under_review' => 'Under Review',
+    'changes_requested' => 'Changes Requested',
+    'approved' => 'Approved',
+    'published' => 'Published',
+    _ => 'Draft',
+  };
+
+  String _actionLabel(String status) => switch (status) {
+    'under_review' => widget.isElder ? 'Review' : 'View Project',
+    'approved' => widget.isElder ? 'Publish' : 'View Project',
+    'published' => 'View Project',
+    'changes_requested' => widget.isElder ? 'Waiting for Youth' : 'Add Content',
+    _ => widget.isElder ? 'Continue Draft' : 'Add Content',
+  };
+
+  List<Map<String, dynamic>> _entries(Connection connection) {
+    final entries = [...connection.workspaceItems];
+    final legacy = connection.workspace;
+    final legacyStatus = legacy['status']?.toString() ?? 'draft';
+    if (connection.workspaceTitle.trim().isNotEmpty ||
+        legacy['content']?.toString().trim().isNotEmpty == true ||
+        legacyStatus != 'draft') {
+      entries.add({...legacy, '_id': 'legacy'});
+    }
+    entries.sort((a, b) {
+      final aDate =
+          DateTime.tryParse(a['updatedAt']?.toString() ?? '') ?? DateTime(2000);
+      final bDate =
+          DateTime.tryParse(b['updatedAt']?.toString() ?? '') ?? DateTime(2000);
+      return bDate.compareTo(aDate);
+    });
+    return entries;
+  }
+
+  String _connectionName(Connection connection) {
+    final peer = widget.isElder ? connection.requester : connection.receiver;
+    return peer?['name']?.toString() ??
+        (widget.isElder ? 'Connected youth' : 'Connected elder');
+  }
+
+  Future<void> _openEditor(
+    Connection project, {
+    String? workspaceItemId,
+  }) async {
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => WorkspaceEditorPage(
+          connection: project,
+          isElder: widget.isElder,
+          workspaceItemId: workspaceItemId,
+        ),
+      ),
+    );
+    if (mounted) _loadProjects();
+  }
+
+  Future<void> _addContent(Connection project) async {
+    try {
+      final result = await _service.createWorkspaceItem(project.id);
+      final item = Map<String, dynamic>.from(result['item'] as Map);
+      if (!mounted) return;
+      await _openEditor(project, workspaceItemId: item['_id']?.toString());
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: const Color(0xFFF8F3EA),
+    appBar: AppBar(title: const Text('My Projects')),
+    body: _loading
+        ? const Center(child: CircularProgressIndicator())
+        : _error != null
+        ? Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(_error!),
+                TextButton(
+                  onPressed: _loadProjects,
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
+          )
+        : RefreshIndicator(
+            onRefresh: _loadProjects,
+            child: _projects.isEmpty
+                ? ListView(
+                    children: [
+                      const SizedBox(height: 130),
+                      Center(
+                        child: Text(
+                          widget.connection == null
+                              ? 'Accept or make a connection to start a project.'
+                              : 'No content yet. Add Content to start working together.',
+                        ),
+                      ),
+                      if (widget.connection != null)
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: FilledButton.icon(
+                            onPressed: () => _addContent(widget.connection!),
+                            icon: const Icon(Icons.add_rounded),
+                            label: const Text('Add Content'),
+                          ),
+                        ),
+                    ],
+                  )
+                : ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      Text(
+                        widget.connection == null
+                            ? (widget.isElder
+                                  ? 'Contributions from your connected youth'
+                                  : 'Your cultural contributions with elders')
+                            : 'Workspace with ${_connectionName(_projects.first)}',
+                        style: Theme.of(context).textTheme.bodyLarge,
+                      ),
+                      const SizedBox(height: 14),
+                      for (final project in _projects) ...[
+                        Card(
+                          color: Colors.white,
+                          child: Padding(
+                            padding: const EdgeInsets.all(14),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.people_outline,
+                                      color: Color(0xFF6B321D),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        _connectionName(project),
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                                    ),
+                                    if (project.communityName.isNotEmpty)
+                                      Flexible(
+                                        child: Text(
+                                          project.communityName,
+                                          textAlign: TextAlign.end,
+                                          style: const TextStyle(
+                                            color: Color(0xFF75675C),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: FilledButton.icon(
+                                    onPressed: () => _addContent(project),
+                                    icon: const Icon(Icons.add_rounded),
+                                    label: const Text('Add Content'),
+                                  ),
+                                ),
+                                for (final entry in _entries(project)) ...[
+                                  const Divider(height: 22),
+                                  Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.auto_stories_outlined,
+                                        color: Color(0xFF6B321D),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          entry['title']
+                                                      ?.toString()
+                                                      .trim()
+                                                      .isNotEmpty ==
+                                                  true
+                                              ? entry['title'].toString()
+                                              : 'Untitled contribution',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                      _ProjectStatusChip(
+                                        label: _statusLabel(
+                                          entry['status']?.toString() ??
+                                              'draft',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: FilledButton.icon(
+                                      onPressed:
+                                          widget.isElder &&
+                                              ![
+                                                'under_review',
+                                                'approved',
+                                                'published',
+                                              ].contains(
+                                                entry['status']?.toString(),
+                                              )
+                                          ? null
+                                          : () => _openEditor(
+                                              project,
+                                              workspaceItemId: entry['_id']
+                                                  ?.toString(),
+                                            ),
+                                      icon: Icon(
+                                        ['draft', 'changes_requested'].contains(
+                                              entry['status']?.toString(),
+                                            )
+                                            ? Icons.edit_outlined
+                                            : Icons.open_in_new,
+                                      ),
+                                      label: Text(
+                                        _actionLabel(
+                                          entry['status']?.toString() ??
+                                              'draft',
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+          ),
+  );
+}
+
+class _ProjectStatusChip extends StatelessWidget {
+  const _ProjectStatusChip({required this.label});
+  final String label;
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (label) {
+      'Published' => const Color(0xFF2B765B),
+      'Approved' => const Color(0xFF39745D),
+      'Under Review' => const Color(0xFFC17A1A),
+      'Changes Requested' => const Color(0xFF9D3D20),
+      _ => const Color(0xFF6B4226),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .1),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w600,
+          fontSize: 11,
+        ),
+      ),
+    );
+  }
+}
+
+class WorkspaceEditorPage extends StatefulWidget {
+  const WorkspaceEditorPage({
+    super.key,
+    required this.connection,
+    this.isElder = false,
+    this.workspaceItemId,
+  });
+  final Connection connection;
+  final bool isElder;
+  final String? workspaceItemId;
+  @override
+  State<WorkspaceEditorPage> createState() => _WorkspaceEditorPageState();
+}
+
+class _WorkspaceEditorPageState extends State<WorkspaceEditorPage> {
   final _service = CultureConnectService();
   final _title = TextEditingController();
   final _content = TextEditingController();
   final _instructions = TextEditingController();
-  late final _tabs = TabController(length: 3, vsync: this);
+  final _tags = TextEditingController();
+  final _category = TextEditingController();
+  final _significance = TextEditingController();
+  final _reviewNote = TextEditingController();
+  List<String> _suggestedTags = const [];
+  bool _usingFallbackTags = false;
   String _community = '';
   String _youthName = 'Youth';
   String _elderName = 'Elder';
+  String _contentType = 'Story';
+  String _language = 'Tamil';
+  String _status = 'draft';
   String? _youthAvatar;
   String? _elderAvatar;
+  String? _storyId;
+  String _imageDataUri = '';
   bool _loading = true;
   bool _busy = false;
+  bool _assistantBusy = false;
+
+  bool get _youthCanEdit =>
+      !widget.isElder && ['draft', 'changes_requested'].contains(_status);
+  bool get _elderCanReview => widget.isElder && _status == 'under_review';
+  bool get _elderCanDraft => widget.isElder && _status == 'draft';
+  bool get _canEdit => _youthCanEdit || _elderCanReview || _elderCanDraft;
+
+  String get _statusLabel => switch (_status) {
+    'under_review' => 'Under Review',
+    'changes_requested' => 'Changes Requested',
+    'approved' => 'Approved',
+    'published' => 'Published',
+    _ => 'Draft',
+  };
   @override
   void initState() {
     super.initState();
@@ -492,16 +1206,22 @@ class _WorkspacePageState extends State<WorkspacePage>
 
   @override
   void dispose() {
-    _tabs.dispose();
     _title.dispose();
     _content.dispose();
     _instructions.dispose();
+    _tags.dispose();
+    _category.dispose();
+    _significance.dispose();
+    _reviewNote.dispose();
     super.dispose();
   }
 
   Future<void> _load() async {
     try {
-      final data = await _service.getWorkspace(widget.connection.id);
+      final data = await _service.getWorkspace(
+        widget.connection.id,
+        workspaceItemId: widget.workspaceItemId,
+      );
       final w = Map<String, dynamic>.from(data['workspace'] as Map);
       final requester = Map<String, dynamic>.from(
         data['requester'] as Map? ?? {},
@@ -525,6 +1245,15 @@ class _WorkspacePageState extends State<WorkspacePage>
         _title.text = w['title']?.toString() ?? '';
         _content.text = w['content']?.toString() ?? '';
         _instructions.text = w['instructions']?.toString() ?? '';
+        _contentType = w['contentType']?.toString() ?? 'Story';
+        _language = w['language']?.toString() ?? 'Tamil';
+        _status = w['status']?.toString() ?? 'draft';
+        _tags.text = (w['tags'] as List? ?? []).join(', ');
+        _category.text = w['category']?.toString() ?? '';
+        _significance.text = w['culturalSignificance']?.toString() ?? '';
+        _imageDataUri = w['imageDataUri']?.toString() ?? '';
+        _reviewNote.text = w['reviewNote']?.toString() ?? '';
+        _storyId = w['storyId']?.toString();
         _loading = false;
       });
     } catch (e) {
@@ -537,164 +1266,677 @@ class _WorkspacePageState extends State<WorkspacePage>
     }
   }
 
-  Future<void> _save({bool publish = false}) async {
-    if (_busy) return;
-    if (publish &&
-        (_title.text.trim().isEmpty || _content.text.trim().isEmpty)) {
+  Future<void> _persistWorkspace() async {
+    await _service.saveWorkspace(
+      widget.connection.id,
+      workspaceItemId: widget.workspaceItemId,
+      title: _title.text,
+      content: _content.text,
+      instructions: _instructions.text,
+      contentType: _contentType,
+      language: _language,
+      tags: _tags.text
+          .split(',')
+          .map((tag) => tag.trim())
+          .where((tag) => tag.isNotEmpty)
+          .toList(),
+      culturalSignificance: _significance.text,
+      category: _category.text,
+      imageDataUri: _imageDataUri,
+    );
+  }
+
+  Future<void> _pickImage() async {
+    if (!_canEdit) return;
+    try {
+      final file = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 72,
+        maxWidth: 1280,
+        maxHeight: 1280,
+      );
+      if (file == null) return;
+      final bytes = await file.readAsBytes();
+      if (bytes.length > 2 * 1024 * 1024) {
+        if (mounted)
+          _showError(
+            Exception('Image must be under 2 MB. Choose a smaller image.'),
+          );
+        return;
+      }
+      final lower = file.name.toLowerCase();
+      final mime = lower.endsWith('.png')
+          ? 'image/png'
+          : (lower.endsWith('.webp') ? 'image/webp' : 'image/jpeg');
+      if (mounted)
+        setState(
+          () => _imageDataUri = 'data:$mime;base64,${base64Encode(bytes)}',
+        );
+    } catch (e) {
+      if (mounted) _showError(e);
+    }
+  }
+
+  Future<void> _suggestCategoryTags() async {
+    if (_assistantBusy || !_canEdit) return;
+    setState(() => _assistantBusy = true);
+    try {
+      Map<String, dynamic> result;
+      var usingFallback = false;
+      try {
+        final response = await _service.askAssistant(
+          'category-tags',
+          widget.connection.id,
+          language: _language,
+          title: _title.text,
+          description: _instructions.text,
+          content: _content.text,
+        );
+        result = Map<String, dynamic>.from(response['result'] as Map);
+      } catch (_) {
+        usingFallback = true;
+        result = CultureAssistantFallback.categoryTags(
+          contentType: _contentType,
+          title: _title.text,
+          content: _content.text,
+        );
+      }
+      final suggestedTags = (result['tags'] as List? ?? [])
+          .map((tag) => tag.toString())
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        _usingFallbackTags = usingFallback;
+        final category = result['category']?.toString().trim() ?? '';
+        if (category.isNotEmpty) _category.text = category;
+        _suggestedTags = suggestedTags
+            .map((tag) => tag.trim())
+            .where((tag) => tag.isNotEmpty)
+            .toSet()
+            .toList();
+      });
+    } catch (e) {
+      if (mounted) _showError(e);
+    } finally {
+      if (mounted) setState(() => _assistantBusy = false);
+    }
+  }
+
+  void _addSuggestedTag(String suggestion) {
+    final currentTags = _tags.text
+        .split(',')
+        .map((tag) => tag.trim())
+        .where((tag) => tag.isNotEmpty)
+        .toList();
+    if (currentTags.any(
+      (tag) => tag.toLowerCase() == suggestion.toLowerCase(),
+    )) {
+      return;
+    }
+    if (currentTags.length >= 12) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You can add up to 12 tags.')),
+      );
+      return;
+    }
+    setState(() {
+      currentTags.add(suggestion);
+      _tags.text = currentTags.join(', ');
+      _tags.selection = TextSelection.collapsed(offset: _tags.text.length);
+    });
+  }
+
+  Future<void> _saveDraft() async {
+    if (_busy || !(_youthCanEdit || _elderCanDraft)) return;
+    setState(() => _busy = true);
+    try {
+      await _persistWorkspace();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Draft saved in My Workspace.')),
+      );
+    } catch (e) {
+      if (mounted) _showError(e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _submitForReview() async {
+    if (_busy || !_youthCanEdit) return;
+    if (_title.text.trim().isEmpty || _content.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Add a title and cultural content before publishing.'),
+          content: Text(
+            'Add a title and contribution before sending for review.',
+          ),
         ),
       );
       return;
     }
     setState(() => _busy = true);
     try {
-      await _service.saveWorkspace(
+      await _persistWorkspace();
+      await _service.submitForReview(
         widget.connection.id,
-        title: _title.text,
-        content: _content.text,
-        instructions: _instructions.text,
+        workspaceItemId: widget.workspaceItemId,
       );
-      if (publish) {
-        final result = await _service.publish(widget.connection.id);
-        if (!mounted) return;
-        final story = Map<String, dynamic>.from(result['story'] as Map);
-        final storyId = story['_id']?.toString();
-        final action = await showDialog<String>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Story Published!'),
-            content: const Text(
-              'Your collaborative content has been published and added to the community.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, 'another'),
-                child: const Text('Create Another'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context, 'view'),
-                child: const Text('View Story'),
-              ),
-            ],
+      if (!mounted) return;
+      setState(() => _status = 'under_review');
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Contribution Sent'),
+          content: Text(
+            'Your contribution was sent to $_elderName for review.',
           ),
-        );
-        if (!mounted) return;
-        if (action == 'view' && storyId != null) {
-          Navigator.push(
-            context,
-            MaterialPageRoute<void>(
-              builder: (_) => YouthStoryDetailPage(storyId: storyId),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
             ),
-          );
-        } else if (action == 'another') {
-          _title.clear();
-          _content.clear();
-          _instructions.clear();
-          await _service.saveWorkspace(
-            widget.connection.id,
-            title: '',
-            content: '',
-            instructions: '',
-          );
-        }
-      } else if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Draft saved.')));
-      }
+          ],
+        ),
+      );
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(e.toString())));
-      }
+      if (mounted) _showError(e);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _saveElderEdits() async {
+    if (_busy || !_elderCanReview) return;
+    setState(() => _busy = true);
+    try {
+      await _persistWorkspace();
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Review changes saved.')));
+      }
+    } catch (e) {
+      if (mounted) _showError(e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _requestChanges() async {
+    if (_busy || !_elderCanReview) return;
+    setState(() => _busy = true);
+    try {
+      await _persistWorkspace();
+      await _service.requestChanges(
+        widget.connection.id,
+        note: _reviewNote.text,
+        workspaceItemId: widget.workspaceItemId,
+      );
+      if (mounted) {
+        setState(() => _status = 'changes_requested');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Changes requested from $_youthName.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) _showError(e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _approve() async {
+    if (_busy || !_elderCanReview) return;
+    setState(() => _busy = true);
+    try {
+      await _persistWorkspace();
+      await _service.approveContribution(
+        widget.connection.id,
+        workspaceItemId: widget.workspaceItemId,
+      );
+      if (mounted) setState(() => _status = 'approved');
+    } catch (e) {
+      if (mounted) _showError(e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _publish() async {
+    if (_busy || !widget.isElder || _status != 'approved') return;
+    if (_title.text.trim().isEmpty || _content.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Add a title and content before publishing.'),
+        ),
+      );
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final result = await _service.publish(
+        widget.connection.id,
+        workspaceItemId: widget.workspaceItemId,
+      );
+      final story = Map<String, dynamic>.from(result['story'] as Map);
+      _storyId = story['_id']?.toString();
+      if (!mounted) return;
+      setState(() => _status = 'published');
+      PublishedContentSignal.notify();
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Published to YATHRA'),
+          content: const Text(
+            'The contribution is now available in Explore and Home.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) _showError(e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _showError(Object error) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))),
+    );
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: const Color(0xFFF8F3EA),
     appBar: AppBar(
-      title: const Text('Collaborative Workspace'),
-      bottom: TabBar(
-        controller: _tabs,
-        tabs: const [
-          Tab(text: 'Content'),
-          Tab(text: 'Tasks'),
-          Tab(text: 'Files'),
-        ],
+      title: Text(
+        _youthCanEdit || _elderCanDraft ? 'Add Content' : 'Project Review',
       ),
     ),
     body: _loading
         ? const Center(child: CircularProgressIndicator())
-        : TabBarView(
-            controller: _tabs,
+        : ListView(
+            padding: const EdgeInsets.all(16),
             children: [
-              ListView(
-                padding: const EdgeInsets.all(16),
+              _WorkspaceStatusCard(
+                status: _statusLabel,
+                note: _status == 'changes_requested' ? _reviewNote.text : '',
+                isElder: widget.isElder,
+              ),
+              const SizedBox(height: 14),
+              Text(
+                _community.isEmpty ? 'Culture Connect' : _community,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 16),
+              Row(
                 children: [
-                  Text(
-                    _community.isEmpty ? 'Culture Connect' : _community,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      _ParticipantChip(name: _youthName, avatar: _youthAvatar),
-                      const SizedBox(width: 12),
-                      _ParticipantChip(name: _elderName, avatar: _elderAvatar),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  TextField(
-                    controller: _title,
-                    decoration: const InputDecoration(labelText: 'Title'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _content,
-                    minLines: 5,
-                    maxLines: 12,
-                    decoration: const InputDecoration(
-                      labelText: 'Cultural story / content',
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _instructions,
-                    minLines: 3,
-                    maxLines: 8,
-                    decoration: const InputDecoration(
-                      labelText: 'Instructions / description',
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      OutlinedButton(
-                        onPressed: _busy ? null : () => _save(),
-                        child: const Text('Save Draft'),
-                      ),
-                      ElevatedButton(
-                        onPressed: _busy ? null : () => _save(publish: true),
-                        child: Text(_busy ? 'Saving...' : 'Publish'),
-                      ),
-                    ],
-                  ),
+                  _ParticipantChip(name: _youthName, avatar: _youthAvatar),
+                  const SizedBox(width: 12),
+                  _ParticipantChip(name: _elderName, avatar: _elderAvatar),
                 ],
               ),
-              const Center(
-                child: Text('Add shared tasks here as your project grows.'),
+              const SizedBox(height: 18),
+              DropdownButtonFormField<String>(
+                value: _contentType,
+                decoration: const InputDecoration(labelText: 'Content type'),
+                items:
+                    const [
+                          'Story',
+                          'Recipe',
+                          'Tradition',
+                          'Song',
+                          'Festival',
+                          'Other',
+                        ]
+                        .map(
+                          (item) =>
+                              DropdownMenuItem(value: item, child: Text(item)),
+                        )
+                        .toList(),
+                onChanged: _canEdit
+                    ? (value) {
+                        if (value != null) setState(() => _contentType = value);
+                      }
+                    : null,
               ),
-              const Center(child: Text('No shared files yet.')),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _language,
+                decoration: const InputDecoration(labelText: 'Language'),
+                items: const ['Tamil', 'English', 'Sinhala']
+                    .map(
+                      (item) =>
+                          DropdownMenuItem(value: item, child: Text(item)),
+                    )
+                    .toList(),
+                onChanged: _canEdit
+                    ? (value) {
+                        if (value != null) setState(() => _language = value);
+                      }
+                    : null,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _title,
+                decoration: const InputDecoration(labelText: 'Title'),
+                readOnly: !_canEdit,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _content,
+                minLines: 5,
+                maxLines: 12,
+                readOnly: !_canEdit,
+                decoration: const InputDecoration(
+                  labelText: 'Cultural story / content',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _instructions,
+                minLines: 3,
+                maxLines: 8,
+                readOnly: !_canEdit,
+                decoration: const InputDecoration(
+                  labelText: 'Short description',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _significance,
+                minLines: 2,
+                maxLines: 5,
+                readOnly: !_canEdit,
+                decoration: const InputDecoration(
+                  labelText: 'Cultural significance (elder to confirm)',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _category,
+                readOnly: !_canEdit,
+                decoration: const InputDecoration(labelText: 'Category'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _tags,
+                readOnly: !_canEdit,
+                decoration: const InputDecoration(
+                  labelText: 'Tags',
+                  hintText: 'Jaffna, Food, Temple Festival',
+                ),
+              ),
+              if (_canEdit) ...[
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: OutlinedButton.icon(
+                    onPressed: _assistantBusy ? null : _suggestCategoryTags,
+                    icon: const Icon(Icons.auto_awesome),
+                    label: Text(
+                      _assistantBusy
+                          ? 'Suggesting...'
+                          : 'Suggest Category & Tags',
+                    ),
+                  ),
+                ),
+                if (_suggestedTags.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    _usingFallbackTags
+                        ? 'Basic Tags - tap to add'
+                        : 'Suggested Tags - tap to add',
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: _suggestedTags.map((tag) {
+                      final isAdded = _tags.text
+                          .split(',')
+                          .map((value) => value.trim().toLowerCase())
+                          .contains(tag.toLowerCase());
+                      return ActionChip(
+                        avatar: Icon(
+                          isAdded ? Icons.check_rounded : Icons.add_rounded,
+                          size: 16,
+                        ),
+                        label: Text(tag),
+                        onPressed: isAdded ? null : () => _addSuggestedTag(tag),
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ],
+              const SizedBox(height: 12),
+              Text(
+                'Image (Optional)',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 8),
+              if (_imageDataUri.isNotEmpty)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.memory(
+                    base64Decode(_imageDataUri.split(',').last),
+                    height: 190,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                  ),
+                )
+              else
+                Container(
+                  height: 120,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border.all(color: const Color(0xFFD8C8B5)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.add_photo_alternate_outlined, size: 32),
+                      SizedBox(height: 6),
+                      Text('Add one image to your contribution'),
+                    ],
+                  ),
+                ),
+              if (_canEdit)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Wrap(
+                    spacing: 8,
+                    children: [
+                      TextButton.icon(
+                        onPressed: _pickImage,
+                        icon: const Icon(Icons.image_outlined),
+                        label: Text(
+                          _imageDataUri.isEmpty
+                              ? 'Choose Image'
+                              : 'Change Image',
+                        ),
+                      ),
+                      if (_imageDataUri.isNotEmpty)
+                        TextButton.icon(
+                          onPressed: () => setState(() => _imageDataUri = ''),
+                          icon: const Icon(Icons.delete_outline),
+                          label: const Text('Remove'),
+                        ),
+                    ],
+                  ),
+                ),
+              if (widget.isElder && _status == 'under_review') ...[
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _reviewNote,
+                  minLines: 2,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'Note for youth (optional)',
+                    hintText: 'Explain what needs to be changed',
+                  ),
+                ),
+              ],
+              const SizedBox(height: 20),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: (_youthCanEdit || _elderCanDraft)
+                    ? [
+                        OutlinedButton(
+                          onPressed: _busy ? null : _saveDraft,
+                          child: const Text('Save Draft'),
+                        ),
+                        if (_youthCanEdit)
+                          ElevatedButton(
+                            onPressed: _busy ? null : _submitForReview,
+                            child: Text(
+                              _busy ? 'Sending...' : 'Send for Review',
+                            ),
+                          ),
+                      ]
+                    : _elderCanReview
+                    ? [
+                        OutlinedButton(
+                          onPressed: _busy ? null : _saveElderEdits,
+                          child: const Text('Save Changes'),
+                        ),
+                        OutlinedButton(
+                          onPressed: _busy ? null : _requestChanges,
+                          child: const Text('Request Changes'),
+                        ),
+                        ElevatedButton.icon(
+                          onPressed: _busy ? null : _approve,
+                          icon: const Icon(Icons.check_circle_outline),
+                          label: Text(_busy ? 'Approving...' : 'Approve'),
+                        ),
+                      ]
+                    : [
+                        if (widget.isElder && _status == 'approved')
+                          ElevatedButton.icon(
+                            onPressed: _busy ? null : _publish,
+                            icon: const Icon(Icons.publish_rounded),
+                            label: Text(
+                              _busy ? 'Publishing...' : 'Publish to Explore',
+                            ),
+                          ),
+                        if (_status == 'published' && _storyId != null)
+                          OutlinedButton(
+                            onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute<void>(
+                                builder: (_) =>
+                                    YouthStoryDetailPage(storyId: _storyId!),
+                              ),
+                            ),
+                            child: const Text('View Published Story'),
+                          ),
+                        if (_status == 'under_review' && !widget.isElder)
+                          const Text(
+                            'Waiting for the elder to review this contribution.',
+                          ),
+                        if (_status == 'approved' && !widget.isElder)
+                          const Text(
+                            'The elder approved this contribution. It will appear in Explore and Home after publishing.',
+                          ),
+                        if (_status == 'changes_requested' && widget.isElder)
+                          const Text(
+                            'Waiting for the youth to update this contribution.',
+                          ),
+                      ],
+              ),
             ],
           ),
   );
+}
+
+class _WorkspaceStatusCard extends StatelessWidget {
+  const _WorkspaceStatusCard({
+    required this.status,
+    required this.note,
+    required this.isElder,
+  });
+
+  final String status;
+  final String note;
+  final bool isElder;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = status == 'Published'
+        ? const Color(0xFF2B765B)
+        : status == 'Approved'
+        ? const Color(0xFF39745D)
+        : status == 'Under Review'
+        ? const Color(0xFFC17A1A)
+        : status == 'Changes Requested'
+        ? const Color(0xFF9D3D20)
+        : const Color(0xFF6B4226);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            status == 'Published' || status == 'Approved'
+                ? Icons.check_circle
+                : Icons.pending_actions,
+            color: color,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  status,
+                  style: TextStyle(fontWeight: FontWeight.bold, color: color),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  status == 'Under Review'
+                      ? (isElder
+                            ? 'Review, edit, request changes, or approve this youth contribution.'
+                            : 'The elder will review this contribution. You cannot publish it.')
+                      : status == 'Approved'
+                      ? (isElder
+                            ? 'This contribution is approved and ready to publish.'
+                            : 'The elder approved this contribution. It will appear in Explore and Home after publishing.')
+                      : status == 'Changes Requested'
+                      ? 'Review the elder note, update your content, and send it again.'
+                      : status == 'Published'
+                      ? 'This contribution is available to the YATHRA community.'
+                      : 'Your draft is visible only to you and your connected elder.',
+                  style: const TextStyle(fontSize: 12.5, height: 1.35),
+                ),
+                if (note.isNotEmpty && status == 'Changes Requested') ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Elder note: $note',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _ParticipantChip extends StatelessWidget {

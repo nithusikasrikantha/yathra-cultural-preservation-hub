@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
   static const Color backgroundColor = Color(0xFFF5F0E6);
@@ -18,22 +17,26 @@ class AppTheme {
         secondary: secondaryTextColor,
       ),
       scaffoldBackgroundColor: backgroundColor,
-      textTheme: GoogleFonts.playfairDisplayTextTheme().copyWith(
-        displayLarge: GoogleFonts.playfairDisplay(
+      textTheme: Typography.material2021().black.copyWith(
+        displayLarge: const TextStyle(
+          fontFamily: 'serif',
           fontSize: 32,
           fontWeight: FontWeight.bold,
           color: primaryColor,
         ),
-        headlineMedium: GoogleFonts.playfairDisplay(
+        headlineMedium: const TextStyle(
+          fontFamily: 'serif',
           fontSize: 24,
           fontWeight: FontWeight.bold,
           color: primaryColor,
         ),
-        bodyLarge: GoogleFonts.inter(
+        bodyLarge: const TextStyle(
+          fontFamily: 'sans-serif',
           fontSize: 16,
           color: primaryColor,
         ),
-        bodyMedium: GoogleFonts.inter(
+        bodyMedium: const TextStyle(
+          fontFamily: 'sans-serif',
           fontSize: 14,
           color: secondaryTextColor,
         ),
@@ -46,7 +49,8 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
           ),
-          textStyle: GoogleFonts.inter(
+          textStyle: const TextStyle(
+            fontFamily: 'sans-serif',
             fontWeight: FontWeight.bold,
             fontSize: 16,
           ),
@@ -59,7 +63,8 @@ class AppTheme {
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide.none,
         ),
-        hintStyle: GoogleFonts.inter(
+        hintStyle: TextStyle(
+          fontFamily: 'sans-serif',
           color: secondaryTextColor.withOpacity(0.5),
         ),
       ),

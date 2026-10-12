@@ -69,7 +69,10 @@ class _YouthHubShellState extends State<YouthHubShell> {
         index: _currentIndex,
         children: [
           isElder
-              ? ElderHomePage(userName: _name)
+              ? ElderHomePage(
+                  userName: _name,
+                  onProfile: () => _selectTab(3),
+                )
               : YouthHomePage(
                   userName: _name,
                   profileComplete: _profileComplete,

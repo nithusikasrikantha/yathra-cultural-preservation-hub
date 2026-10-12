@@ -2,6 +2,12 @@ const express = require('express');
 const mongoose = require('mongoose');
 const router = express.Router();
 const Story = require('../models/Story');
+const authenticate = require('../middleware/authenticate');
+
+const requireElder = (req, res, next) => {
+  if (req.user?.role !== 'elder') return res.status(403).json({ message: 'Only an elder account can publish or manage stories.' });
+  next();
+};
 
 // Helper to validate MongoDB ObjectId
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
@@ -38,8 +44,8 @@ const normalizeTags = (tags) => {
 
 // @route   POST /api/stories
 // @desc    Publish a new cultural story
-// @access  Public
-router.post('/', async (req, res) => {
+// @access  Elder
+router.post('/', authenticate, requireElder, async (req, res) => {
   try {
     const { title, category, language, storyText, audioPath, tags } = req.body;
 
@@ -69,6 +75,8 @@ router.post('/', async (req, res) => {
       storyText: storyText.trim(),
       audioPath: audioPath || null,
       tags: normalizedTags.value,
+      publishedBy: req.user._id,
+      contributors: [req.user._id],
       isDeleted: false,
     });
 
@@ -201,8 +209,8 @@ router.get('/:id', async (req, res) => {
 
 // @route   PUT /api/stories/:id
 // @desc    Edit/Update an existing story
-// @access  Public
-router.put('/:id', async (req, res) => {
+// @access  Elder
+router.put('/:id', authenticate, requireElder, async (req, res) => {
   try {
     const { id } = req.params;
     if (!isValidObjectId(id)) {
@@ -274,8 +282,8 @@ router.put('/:id', async (req, res) => {
 
 // @route   DELETE /api/stories/:id
 // @desc    Soft delete a story (sets isDeleted = true)
-// @access  Public
-router.delete('/:id', async (req, res) => {
+// @access  Elder
+router.delete('/:id', authenticate, requireElder, async (req, res) => {
   try {
     const { id } = req.params;
     if (!isValidObjectId(id)) {
