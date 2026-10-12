@@ -7,6 +7,7 @@ class Story {
     required this.storyText,
     this.tags = const [],
     this.audioPath,
+    this.imageDataUri,
     this.createdAt,
   });
 
@@ -17,6 +18,7 @@ class Story {
   final String storyText;
   final List<String> tags;
   final String? audioPath;
+  final String? imageDataUri;
   final DateTime? createdAt;
 
   factory Story.fromJson(Map<String, dynamic> json) {
@@ -28,6 +30,7 @@ class Story {
       storyText: _requiredString(json, 'storyText'),
       tags: _stringList(json['tags']),
       audioPath: _optionalString(json['audioPath']),
+      imageDataUri: _optionalString(json['imageDataUri']),
       createdAt: DateTime.tryParse(_optionalString(json['createdAt']) ?? ''),
     );
   }

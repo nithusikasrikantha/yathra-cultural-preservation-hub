@@ -7,8 +7,6 @@ dotenv.config({ path: path.join(__dirname, '../../.env') });
 const requiredEnvs = [
   'MONGODB_URI',
   'JWT_SECRET',
-  'OPENAI_API_KEY',
-  'OPENAI_MODEL',
 ];
 
 const validateEnv = () => {
@@ -22,7 +20,7 @@ const validateEnv = () => {
 
 module.exports = {
   nodeEnv: process.env.NODE_ENV || 'development',
-  port: process.env.PORT || 5001,
+  port: process.env.PORT || 5000,
   mongodbUri: process.env.MONGODB_URI,
   jwtSecret: process.env.JWT_SECRET,
   openaiApiKey: process.env.OPENAI_API_KEY,

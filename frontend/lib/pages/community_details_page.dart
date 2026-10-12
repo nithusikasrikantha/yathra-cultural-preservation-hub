@@ -141,7 +141,7 @@ class _CommunityDetailsPageState extends State<CommunityDetailsPage> {
   void _openWorkspace(Connection connection) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => WorkspacePage(connection: connection),
+        builder: (_) => WorkspacePage(connection: connection, isElder: false),
       ),
     );
   }

@@ -1,14 +1,19 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../share_story_page.dart';
+import '../culture_connect_pages.dart';
+import '../../models/story.dart';
+import '../../services/published_content_signal.dart';
+import '../../services/story_service.dart';
+import '../youth_story_detail_page.dart';
 
 class ElderHomePage extends StatefulWidget {
-  const ElderHomePage({
-    super.key,
-    this.userName = 'Kamala',
-  });
+  const ElderHomePage({super.key, this.userName = 'Kamala', this.onProfile});
 
   final String userName;
+  final VoidCallback? onProfile;
 
   @override
   State<ElderHomePage> createState() => _ElderHomePageState();
@@ -21,13 +26,34 @@ class _ElderHomePageState extends State<ElderHomePage> {
   static const Color _cardBg = Color(0xFFFFFDF8);
 
   int _selectedTab = 0; // 0: For You, 1: Following
+  List<Story> _publishedStories = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    PublishedContentSignal.revision.addListener(_loadPublishedStories);
+    _loadPublishedStories();
+  }
+
+  @override
+  void dispose() {
+    PublishedContentSignal.revision.removeListener(_loadPublishedStories);
+    super.dispose();
+  }
+
+  Future<void> _loadPublishedStories() async {
+    try {
+      final page = await const StoryService().fetchStories(page: 1, limit: 4);
+      if (mounted) setState(() => _publishedStories = page.items);
+    } catch (_) {
+      // Keep the existing feed available when the stories service is offline.
+    }
+  }
 
   void _openShareStory() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => const ShareStoryPage(),
-      ),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (context) => const ShareStoryPage()));
   }
 
   @override
@@ -37,9 +63,39 @@ class _ElderHomePageState extends State<ElderHomePage> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.menu_rounded, color: _primaryBrown, size: 28),
-          onPressed: () {},
+        leading: PopupMenuButton<String>(
+          icon: const Icon(
+            Icons.more_vert_rounded,
+            color: _primaryBrown,
+            size: 28,
+          ),
+          color: const Color(0xFFFFFBF4),
+          elevation: 8,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          onSelected: (value) {
+            if (value == 'projects') {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const WorkspacePage(isElder: true),
+                ),
+              );
+            }
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(
+              value: 'projects',
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.folder_outlined, size: 20),
+                  SizedBox(width: 10),
+                  Text('My Projects'),
+                ],
+              ),
+            ),
+          ],
         ),
         centerTitle: true,
         title: Row(
@@ -71,29 +127,18 @@ class _ElderHomePageState extends State<ElderHomePage> {
           ],
         ),
         actions: [
-          Stack(
-            children: [
-              IconButton(
-                icon: const Icon(
-                  Icons.notifications_none_rounded,
-                  color: _primaryBrown,
-                  size: 26,
-                ),
-                onPressed: () {},
+          IconButton(
+            tooltip: 'My Connections',
+            icon: const Icon(
+              Icons.people_alt_outlined,
+              color: _primaryBrown,
+              size: 26,
+            ),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const MyConnectionsPage(isElder: true),
               ),
-              Positioned(
-                right: 12,
-                top: 12,
-                child: Container(
-                  width: 9,
-                  height: 9,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFD9534F),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
           IconButton(
             icon: const Icon(
@@ -101,7 +146,7 @@ class _ElderHomePageState extends State<ElderHomePage> {
               color: _primaryBrown,
               size: 28,
             ),
-            onPressed: () {},
+            onPressed: widget.onProfile,
           ),
           const SizedBox(width: 6),
         ],
@@ -117,6 +162,11 @@ class _ElderHomePageState extends State<ElderHomePage> {
                 children: [
                   // Greeting Header Banner
                   _buildGreetingBanner(),
+
+                  if (_publishedStories.isNotEmpty) ...[
+                    const SizedBox(height: 18),
+                    _buildRecentlyPublished(),
+                  ],
 
                   const SizedBox(height: 20),
 
@@ -182,6 +232,56 @@ class _ElderHomePageState extends State<ElderHomePage> {
     );
   }
 
+  Widget _buildRecentlyPublished() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text(
+        'Recently Published',
+        style: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+          color: _primaryBrown,
+        ),
+      ),
+      const SizedBox(height: 10),
+      ..._publishedStories.map(
+        (story) => Card(
+          color: _cardBg,
+          child: ListTile(
+            leading: story.imageDataUri == null
+                ? const CircleAvatar(
+                    backgroundColor: Color(0xFFEADCC9),
+                    child: Icon(
+                      Icons.auto_stories_rounded,
+                      color: _accentBrown,
+                    ),
+                  )
+                : ClipOval(
+                    child: Image.memory(
+                      base64Decode(story.imageDataUri!.split(',').last),
+                      width: 42,
+                      height: 42,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+            title: Text(
+              story.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text('${story.category} • ${story.language}'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => YouthStoryDetailPage(storyId: story.id),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ],
+  );
+
   Widget _buildGreetingBanner() {
     return Container(
       width: double.infinity,
@@ -237,11 +337,8 @@ class _ElderHomePageState extends State<ElderHomePage> {
               child: Image.network(
                 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=200&q=80',
                 fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const Icon(
-                  Icons.person,
-                  size: 40,
-                  color: _accentBrown,
-                ),
+                errorBuilder: (_, _, _) =>
+                    const Icon(Icons.person, size: 40, color: _accentBrown),
               ),
             ),
           ),
@@ -262,8 +359,9 @@ class _ElderHomePageState extends State<ElderHomePage> {
                 'For You',
                 style: TextStyle(
                   fontSize: 18,
-                  fontWeight:
-                      _selectedTab == 0 ? FontWeight.bold : FontWeight.normal,
+                  fontWeight: _selectedTab == 0
+                      ? FontWeight.bold
+                      : FontWeight.normal,
                   color: _selectedTab == 0 ? _primaryBrown : Colors.black45,
                 ),
               ),
@@ -290,8 +388,9 @@ class _ElderHomePageState extends State<ElderHomePage> {
                 'Following',
                 style: TextStyle(
                   fontSize: 18,
-                  fontWeight:
-                      _selectedTab == 1 ? FontWeight.bold : FontWeight.normal,
+                  fontWeight: _selectedTab == 1
+                      ? FontWeight.bold
+                      : FontWeight.normal,
                   color: _selectedTab == 1 ? _primaryBrown : Colors.black45,
                 ),
               ),
@@ -404,15 +503,21 @@ class _ElderHomePageState extends State<ElderHomePage> {
                   errorBuilder: (_, _, _) => Container(
                     height: 180,
                     color: _accentBrown.withValues(alpha: 0.15),
-                    child: const Icon(Icons.image, size: 48, color: _accentBrown),
+                    child: const Icon(
+                      Icons.image,
+                      size: 48,
+                      color: _accentBrown,
+                    ),
                   ),
                 ),
                 Positioned(
                   left: 12,
                   bottom: 12,
                   child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 7,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.65),
                       borderRadius: BorderRadius.circular(20),
@@ -447,16 +552,22 @@ class _ElderHomePageState extends State<ElderHomePage> {
           // Social Footer Bar (Likes, Comments, Share)
           Row(
             children: [
-              const Icon(Icons.favorite_border_rounded,
-                  size: 20, color: Colors.black54),
+              const Icon(
+                Icons.favorite_border_rounded,
+                size: 20,
+                color: Colors.black54,
+              ),
               const SizedBox(width: 6),
               Text(
                 '$likes',
                 style: const TextStyle(fontSize: 13, color: Colors.black54),
               ),
               const SizedBox(width: 20),
-              const Icon(Icons.chat_bubble_outline_rounded,
-                  size: 20, color: Colors.black54),
+              const Icon(
+                Icons.chat_bubble_outline_rounded,
+                size: 20,
+                color: Colors.black54,
+              ),
               const SizedBox(width: 6),
               Text(
                 '$comments',
@@ -470,8 +581,11 @@ class _ElderHomePageState extends State<ElderHomePage> {
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
                 onPressed: () {},
-                icon: const Icon(Icons.reply_rounded,
-                    size: 20, color: Colors.black54),
+                icon: const Icon(
+                  Icons.reply_rounded,
+                  size: 20,
+                  color: Colors.black54,
+                ),
                 label: const Text(
                   'Share',
                   style: TextStyle(fontSize: 13, color: Colors.black54),

@@ -75,7 +75,7 @@ class MockCulturalData {
         membersCount: '1.2k Members',
         activeEldersCount: '85 Active Elders',
         imageUrl:
-            'https://images.unsplash.com/photo-1596797882870-8c33deeac224?w=600&auto=format&fit=crop',
+            'https://assets.roar.media/Life/2017/04/Jaffna-food1.jpg?w=1200',
         category: 'Food',
         description:
             'Preserving authentic Northern Sri Lankan recipes, palmyra delicacies, and traditional clay-pot cooking secrets passed down through generations.',
@@ -148,7 +148,7 @@ class MockCulturalData {
         membersCount: '980 Members',
         activeEldersCount: '42 Active Elders',
         imageUrl:
-            'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=600&auto=format&fit=crop',
+            'https://cdn.audleytravel.com/1400/1000/60/352521-kandyan-dancers-kandy.jpg',
         category: 'Performing Arts',
         description:
             'Celebrating Ves dance rituals, drum rhythms, sacred temple dances, and the rich dance heritage of the Hill Country.',
@@ -191,7 +191,7 @@ class MockCulturalData {
         membersCount: '850 Members',
         activeEldersCount: '38 Active Elders',
         imageUrl:
-            'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=600&auto=format&fit=crop',
+            'https://s3.ap-southeast-1.amazonaws.com/cdn.sannasa.lk/media/3399/conversions/WhatsApp-Image-2024-08-05-at-03.24.57-w_1024.jpg',
         category: 'Traditional Music',
         description:
             'Preserving paddy harvest chants, lullabies, boating songs, and oral folklore melodies sung across rural Sri Lankan villages.',
@@ -228,6 +228,42 @@ class MockCulturalData {
           ),
         ],
       ),
+      CulturalTheme(
+        id: 'northern_heritage_history',
+        title: 'Northern Heritage & Living History',
+        membersCount: '720 Members',
+        activeEldersCount: '31 Active Elders',
+        imageUrl:
+            'https://media-cdn.tripadvisor.com/media/attractions-splice-spp-720x480/0a/4c/7b/2a.jpg',
+        category: 'History',
+        description:
+            'Explore Jaffna temples, historic homes, inscriptions, local landmarks and the memories elders carry about how their communities changed over time.',
+        knowledgePosts: const [],
+      ),
+      CulturalTheme(
+        id: 'tamil_dialects',
+        title: 'Tamil Dialects & Oral Expressions',
+        membersCount: '540 Members',
+        activeEldersCount: '24 Active Elders',
+        imageUrl:
+            'https://specials-images.forbesimg.com/imageserve/677ec972d1d7c86cf65676f3/A-woman-and-her-elderly-relative-engaging-in-an-intimate-chat-/960x0.jpg?fit=scale',
+        category: 'Local Dialects',
+        description:
+            'Collect regional words, sayings, pronunciation and everyday expressions, with elders explaining when and where each phrase is used.',
+        knowledgePosts: const [],
+      ),
+      CulturalTheme(
+        id: 'home_garden_healing',
+        title: 'Home Gardens & Traditional Healing',
+        membersCount: '460 Members',
+        activeEldersCount: '19 Active Elders',
+        imageUrl:
+            'https://www.botanicgardens.gov.lk/wp-content/uploads/2021/10/3A8A0475.jpg',
+        category: 'Ayurveda & Healing',
+        description:
+            'Document traditional home-garden plants, preparation customs and family knowledge. Shared knowledge is for cultural learning, not medical advice.',
+        knowledgePosts: const [],
+      ),
     ];
   }
 
@@ -237,42 +273,42 @@ class MockCulturalData {
         title: 'History',
         subtitle: 'Ancient Archives',
         imageUrl:
-            'https://images.unsplash.com/photo-1564507592333-c60657eea523?w=300',
+            'https://media-cdn.tripadvisor.com/media/attractions-splice-spp-720x480/0a/4c/7b/2a.jpg',
         categoryKey: 'history',
       ),
       CategoryItem(
         title: 'Food',
         subtitle: 'Heritage Recipes',
         imageUrl:
-            'https://images.unsplash.com/photo-1596797882870-8c33deeac224?w=300',
+            'https://assets.roar.media/Life/2017/04/Jaffna-food1.jpg?w=1200',
         categoryKey: 'food',
       ),
       CategoryItem(
         title: 'Performing Arts',
         subtitle: 'Traditional Dance',
         imageUrl:
-            'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=300',
+            'https://cdn.audleytravel.com/1400/1000/60/352521-kandyan-dancers-kandy.jpg',
         categoryKey: 'performing_arts',
       ),
       CategoryItem(
         title: 'Traditional Music',
         subtitle: 'Rhythm & Verse',
         imageUrl:
-            'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300',
+            'https://s3.ap-southeast-1.amazonaws.com/cdn.sannasa.lk/media/3399/conversions/WhatsApp-Image-2024-08-05-at-03.24.57-w_1024.jpg',
         categoryKey: 'music',
       ),
       CategoryItem(
         title: 'Local Dialects',
         subtitle: 'Idioms & Tongue',
         imageUrl:
-            'https://images.unsplash.com/photo-1455390582262-044cdead277a?w=300',
+            'https://feeds.abplive.com/onecms/images/uploaded-images/2021/05/18/33a07e341974b3174cb1063913df3ffc_original.jpg',
         categoryKey: 'dialects',
       ),
       CategoryItem(
         title: 'Ayurveda & Healing',
         subtitle: 'Medicinal Lore',
         imageUrl:
-            'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=300',
+            'https://www.botanicgardens.gov.lk/wp-content/uploads/2021/10/3A8A0475.jpg',
         categoryKey: 'ayurveda',
       ),
     ];

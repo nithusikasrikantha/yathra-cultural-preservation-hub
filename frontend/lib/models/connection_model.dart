@@ -7,6 +7,10 @@ class Connection {
   final DateTime? updatedAt;
   final String communityId;
   final String communityName;
+  final String workspaceStatus;
+  final String workspaceTitle;
+  final Map<String, dynamic> workspace;
+  final List<Map<String, dynamic>> workspaceItems;
   final Map<String, dynamic>? requester;
   final Map<String, dynamic>? receiver;
 
@@ -19,6 +23,10 @@ class Connection {
     this.updatedAt,
     this.communityId = '',
     this.communityName = '',
+    this.workspaceStatus = 'draft',
+    this.workspaceTitle = '',
+    this.workspace = const {},
+    this.workspaceItems = const [],
     this.requester,
     this.receiver,
   });
@@ -37,6 +45,19 @@ class Connection {
           : null,
       communityId: json['communityId'] ?? '',
       communityName: json['communityName'] ?? '',
+      workspaceStatus: json['workspace'] is Map
+          ? (json['workspace']['status']?.toString() ?? 'draft')
+          : 'draft',
+      workspaceTitle: json['workspace'] is Map
+          ? (json['workspace']['title']?.toString() ?? '')
+          : '',
+      workspace: json['workspace'] is Map
+          ? Map<String, dynamic>.from(json['workspace'] as Map)
+          : const {},
+      workspaceItems: (json['workspaceItems'] as List? ?? [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(),
       requester: json['requester'] is Map
           ? Map<String, dynamic>.from(json['requester'])
           : null,

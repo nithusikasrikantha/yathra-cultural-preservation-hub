@@ -101,33 +101,147 @@ class CultureConnectService {
     return Map<String, dynamic>.from(response['message'] as Map);
   }
 
-  Future<Map<String, dynamic>> getWorkspace(String id) async =>
+  Future<Map<String, dynamic>> getChatConsent(String id) async =>
       Map<String, dynamic>.from(
         await _api.get(
-          '${ApiEndpoints.connections}/$id/workspace',
+          '${ApiEndpoints.connections}/$id/chat-consent',
           headers: await _headers,
         ),
       );
+
+  Future<Map<String, dynamic>> setChatConsent(String id, bool consent) async =>
+      Map<String, dynamic>.from(
+        await _api.put(
+          '${ApiEndpoints.connections}/$id/chat-consent',
+          headers: await _headers,
+          body: {'consent': consent},
+        ),
+      );
+
+  Future<Map<String, dynamic>> askAssistant(
+    String action,
+    String connectionId, {
+    String language = 'English',
+    String topic = '',
+    String title = '',
+    String description = '',
+    String content = '',
+  }) async => Map<String, dynamic>.from(
+    await _api.post(
+      '/api/ai/culture-content-assistant/$action',
+      headers: await _headers,
+      body: {
+        'connectionId': connectionId,
+        'language': language,
+        'topic': topic,
+        'title': title,
+        'description': description,
+        'content': content,
+      },
+      timeout: const Duration(seconds: 45),
+    ),
+  );
+
+  Future<Map<String, dynamic>> createWorkspaceItem(String id) async =>
+      Map<String, dynamic>.from(
+        await _api.post(
+          '${ApiEndpoints.connections}/$id/workspace/items',
+          headers: await _headers,
+          body: {},
+        ),
+      );
+
+  Future<Map<String, dynamic>> getWorkspace(
+    String id, {
+    String? workspaceItemId,
+  }) async {
+    final suffix = workspaceItemId == null
+        ? ''
+        : '?workspaceItemId=${Uri.encodeQueryComponent(workspaceItemId)}';
+    return Map<String, dynamic>.from(
+      await _api.get(
+        '${ApiEndpoints.connections}/$id/workspace$suffix',
+        headers: await _headers,
+      ),
+    );
+  }
 
   Future<Map<String, dynamic>> saveWorkspace(
     String id, {
     required String title,
     required String content,
     required String instructions,
+    String? workspaceItemId,
+    String contentType = 'Story',
+    String language = 'Tamil',
+    List<String> tags = const [],
+    String culturalSignificance = '',
+    String category = '',
+    String imageDataUri = '',
   }) async => Map<String, dynamic>.from(
     await _api.put(
       '${ApiEndpoints.connections}/$id/workspace',
       headers: await _headers,
-      body: {'title': title, 'content': content, 'instructions': instructions},
+      body: {
+        if (workspaceItemId != null) 'workspaceItemId': workspaceItemId,
+        'title': title,
+        'content': content,
+        'instructions': instructions,
+        'contentType': contentType,
+        'language': language,
+        'tags': tags,
+        'culturalSignificance': culturalSignificance,
+        'category': category,
+        'imageDataUri': imageDataUri,
+      },
     ),
   );
 
-  Future<Map<String, dynamic>> publish(String id) async =>
-      Map<String, dynamic>.from(
-        await _api.post(
-          '${ApiEndpoints.connections}/$id/publish',
-          headers: await _headers,
-          body: {},
-        ),
-      );
+  Future<Map<String, dynamic>> submitForReview(
+    String id, {
+    String? workspaceItemId,
+  }) async => Map<String, dynamic>.from(
+    await _api.post(
+      '${ApiEndpoints.connections}/$id/submit',
+      headers: await _headers,
+      body: {if (workspaceItemId != null) 'workspaceItemId': workspaceItemId},
+    ),
+  );
+
+  Future<Map<String, dynamic>> requestChanges(
+    String id, {
+    String note = '',
+    String? workspaceItemId,
+  }) async => Map<String, dynamic>.from(
+    await _api.post(
+      '${ApiEndpoints.connections}/$id/request-changes',
+      headers: await _headers,
+      body: {
+        'note': note,
+        if (workspaceItemId != null) 'workspaceItemId': workspaceItemId,
+      },
+    ),
+  );
+
+  Future<Map<String, dynamic>> approveContribution(
+    String id, {
+    String? workspaceItemId,
+  }) async => Map<String, dynamic>.from(
+    await _api.post(
+      '${ApiEndpoints.connections}/$id/approve',
+      headers: await _headers,
+      body: {if (workspaceItemId != null) 'workspaceItemId': workspaceItemId},
+    ),
+  );
+
+  Future<Map<String, dynamic>> publish(
+    String id, {
+    String? workspaceItemId,
+  }) async => Map<String, dynamic>.from(
+    await _api.post(
+      '${ApiEndpoints.connections}/$id/publish',
+      headers: await _headers,
+      body: {if (workspaceItemId != null) 'workspaceItemId': workspaceItemId},
+    ),
+  );
 }

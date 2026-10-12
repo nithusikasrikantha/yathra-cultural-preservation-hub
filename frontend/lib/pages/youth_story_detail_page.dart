@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../data/elder_story_engagement_demo_data.dart';
@@ -613,15 +615,32 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: _primaryBrown.withValues(alpha: 0.1)),
       ),
-      child: Text(
-        _showTranslation
-            ? _translation?.translatedText ?? story.storyText
-            : story.storyText,
-        style: const TextStyle(
-          color: Colors.black87,
-          fontSize: 18,
-          height: 1.65,
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (story.imageDataUri != null) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.memory(
+                base64Decode(story.imageDataUri!.split(',').last),
+                width: double.infinity,
+                height: 220,
+                fit: BoxFit.cover,
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+          Text(
+            _showTranslation
+                ? _translation?.translatedText ?? story.storyText
+                : story.storyText,
+            style: const TextStyle(
+              color: Colors.black87,
+              fontSize: 18,
+              height: 1.65,
+            ),
+          ),
+        ],
       ),
     );
   }

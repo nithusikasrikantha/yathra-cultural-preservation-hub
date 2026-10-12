@@ -21,7 +21,7 @@ if (nodeEnv === 'development') {
 }
 
 // Body Parsing Middleware
-app.use(express.json());
+app.use(express.json({ limit: '4mb' }));
 app.use(express.urlencoded({ extended: false }));
 
 // Routes

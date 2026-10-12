@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../models/story.dart';
@@ -272,7 +274,15 @@ class _StoryMedia extends StatelessWidget {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            if (imageAssetPath case final assetPath?)
+            if (story.imageDataUri case final image?)
+              Image.memory(
+                base64Decode(image.split(',').last),
+                width: double.infinity,
+                height: 180,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => _MediaPlaceholder(story: story),
+              )
+            else if (imageAssetPath case final assetPath?)
               Image.asset(
                 assetPath,
                 width: double.infinity,
