@@ -42,11 +42,28 @@ const normalizeTags = (tags) => {
   return { value: normalizedTags };
 };
 
+
+const imageFields = (body) => {
+  const valid = value => typeof value === 'string' && (/^\/uploads\/[a-f0-9-]+\.(jpg|png|webp)$/.test(value) || /^https?:\/\//.test(value));
+  if (body.bannerImage !== undefined && body.bannerImage !== null && !valid(body.bannerImage)) return { error: 'Invalid banner image.' };
+  if (body.additionalImages !== undefined && (!Array.isArray(body.additionalImages) || body.additionalImages.length > 8 || !body.additionalImages.every(valid))) return { error: 'Choose up to eight valid additional images.' };
+  const value = {};
+  for (const key of ['bannerImage', 'additionalImages', 'location', 'timePeriod', 'community']) {
+    if (body[key] !== undefined) value[key] = body[key];
+  }
+  for (const key of ['location', 'timePeriod', 'community']) {
+    if (value[key] !== undefined && typeof value[key] !== 'string') return { error: `Invalid ${key}.` };
+  }
+  return { value };
+};
+
 // @route   POST /api/stories
 // @desc    Publish a new cultural story
 // @access  Elder
 router.post('/', authenticate, requireElder, async (req, res) => {
   try {
+    const images = imageFields(req.body);
+    if (images.error) return res.status(400).json({ message: images.error });
     const { title, category, language, storyText, audioPath, tags } = req.body;
 
     // Field validation
@@ -78,6 +95,7 @@ router.post('/', authenticate, requireElder, async (req, res) => {
       publishedBy: req.user._id,
       contributors: [req.user._id],
       isDeleted: false,
+      ...images.value,
     });
 
     const savedStory = await newStory.save();
@@ -222,6 +240,8 @@ router.put('/:id', authenticate, requireElder, async (req, res) => {
       return res.status(404).json({ message: 'Story not found or has been deleted.' });
     }
 
+    const images = imageFields(req.body);
+    if (images.error) return res.status(400).json({ message: images.error });
     const { title, category, language, storyText, audioPath, tags } = req.body;
 
     // Field validation
@@ -265,6 +285,7 @@ router.put('/:id', authenticate, requireElder, async (req, res) => {
       story.tags = normalizedTags.value;
     }
 
+    Object.assign(story, images.value);
     const updatedStory = await story.save();
 
     return res.status(200).json({

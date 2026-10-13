@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 import '../../screens/login_screen.dart';
 import '../../services/auth_service.dart';
 
+import '../../models/story.dart';
+import '../../services/story_service.dart';
+import 'elder_knowledge_discovery_page.dart';
+import 'share_story_page.dart';
+
 class ElderProfilePage extends StatefulWidget {
   const ElderProfilePage({
     super.key,
@@ -49,6 +54,68 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
       MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
       (_) => false,
     );
+  }
+
+  final StoryService _storyService = const StoryService();
+  final List<Story> _recentPosts = [];
+  bool _isLoadingRecent = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRecentPosts();
+  }
+
+  Future<void> _loadRecentPosts() async {
+    try {
+      final page = await _storyService.fetchStories(page: 1, limit: 2);
+      if (mounted) {
+        setState(() {
+          _recentPosts.clear();
+          _recentPosts.addAll(page.items);
+          _isLoadingRecent = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _isLoadingRecent = false);
+      }
+    }
+  }
+
+  void _openPostLibrary() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const ElderKnowledgeDiscoveryPage(),
+      ),
+    );
+    _loadRecentPosts();
+  }
+
+  void _openEditStory(Story story) async {
+    final storyMap = {
+      '_id': story.id,
+      'title': story.title,
+      'category': story.category,
+      'language': story.language,
+      'storyText': story.storyText,
+      'audioPath': story.audioPath,
+      'bannerImage': story.bannerImage,
+      'additionalImages': story.additionalImages,
+      'location': story.location,
+      'timePeriod': story.timePeriod,
+      'community': story.community,
+    };
+
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (context) => ShareStoryPage(storyToEdit: storyMap),
+      ),
+    );
+
+    if (result == true || mounted) {
+      _loadRecentPosts();
+    }
   }
 
   @override
@@ -113,15 +180,10 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
               // Profile Header Info
               _buildProfileHeader(),
 
-              const SizedBox(height: 18),
+              const SizedBox(height: 20),
 
-              // Contribution Overview
-              _buildContributionOverview(),
-
-              const SizedBox(height: 18),
-
-              // My Contributions
-              _buildMyContributionsSection(),
+              // MY POSTS Section (Replaces My Contributions & Contribution Overview)
+              _buildMyPostsSection(),
 
               const SizedBox(height: 18),
 
@@ -169,11 +231,8 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
             child: Image.network(
               'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=250&q=80',
               fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => const Icon(
-                Icons.person,
-                size: 56,
-                color: _accentBrown,
-              ),
+              errorBuilder: (_, _, _) =>
+                  const Icon(Icons.person, size: 56, color: _accentBrown),
             ),
           ),
         ),
@@ -196,10 +255,7 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
         // Handle
         Text(
           widget.handle,
-          style: const TextStyle(
-            fontSize: 14,
-            color: Colors.black54,
-          ),
+          style: const TextStyle(fontSize: 14, color: Colors.black54),
         ),
 
         const SizedBox(height: 8),
@@ -221,14 +277,22 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.location_on_outlined, size: 16, color: Colors.black54),
+            const Icon(
+              Icons.location_on_outlined,
+              size: 16,
+              color: Colors.black54,
+            ),
             const SizedBox(width: 4),
             const Text(
               'Jaffna',
               style: TextStyle(fontSize: 13, color: Colors.black54),
             ),
             const SizedBox(width: 16),
-            const Icon(Icons.chat_bubble_outline_rounded, size: 15, color: Colors.black54),
+            const Icon(
+              Icons.chat_bubble_outline_rounded,
+              size: 15,
+              color: Colors.black54,
+            ),
             const SizedBox(width: 4),
             const Text(
               'Tamil • Sinhala',
@@ -244,9 +308,17 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             _buildStatItem('24', 'Contributions'),
-            Container(height: 24, width: 1, color: Colors.grey.withValues(alpha: 0.3)),
+            Container(
+              height: 24,
+              width: 1,
+              color: Colors.grey.withValues(alpha: 0.3),
+            ),
             _buildStatItem('156', 'Followers'),
-            Container(height: 24, width: 1, color: Colors.grey.withValues(alpha: 0.3)),
+            Container(
+              height: 24,
+              width: 1,
+              color: Colors.grey.withValues(alpha: 0.3),
+            ),
             _buildStatItem('12', 'Following'),
           ],
         ),
@@ -266,7 +338,11 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
               ),
             ),
             onPressed: () {},
-            icon: const Icon(Icons.edit_outlined, color: _accentBrown, size: 18),
+            icon: const Icon(
+              Icons.edit_outlined,
+              color: _accentBrown,
+              size: 18,
+            ),
             label: const Text(
               'Edit Profile',
               style: TextStyle(
@@ -295,104 +371,189 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
         const SizedBox(height: 2),
         Text(
           label,
-          style: const TextStyle(
-            fontSize: 12.5,
-            color: Colors.black54,
-          ),
+          style: const TextStyle(fontSize: 12.5, color: Colors.black54),
         ),
       ],
     );
   }
 
-  Widget _buildContributionOverview() {
+  Widget _buildMyPostsSection() {
     return _buildCardContainer(
-      title: 'CONTRIBUTION OVERVIEW',
+      title: 'MY POSTS',
+      showChevron: true,
+      onHeaderTap: _openPostLibrary,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildOverviewMetric(
-                icon: Icons.article_outlined,
-                value: '24',
-                label: 'Contributions',
+          const Text(
+            'Recent Posts',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Colors.black54,
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Render 1 or 2 Recent Posts
+          if (_isLoadingRecent)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Center(
+                child: CircularProgressIndicator(color: _accentBrown),
               ),
-              Container(height: 36, width: 1, color: Colors.grey.withValues(alpha: 0.2)),
-              _buildOverviewMetric(
-                icon: Icons.visibility_outlined,
-                value: '1.2K',
-                label: 'Views',
-              ),
-              Container(height: 36, width: 1, color: Colors.grey.withValues(alpha: 0.2)),
-              _buildOverviewMetric(
-                icon: Icons.chat_bubble_outline_rounded,
-                value: '86',
-                label: 'Responses',
-              ),
+            )
+          else if (_recentPosts.isNotEmpty) ...[
+            for (final story in _recentPosts) ...[
+              _buildRecentPostPreview(story),
+              const SizedBox(height: 10),
             ],
+          ] else ...[
+            _buildSampleRecentPostPreview(
+              'The story of our village harvest, when the whole community came together...',
+              'Tamil • Traditional Story',
+            ),
+            const SizedBox(height: 10),
+            _buildSampleRecentPostPreview(
+              'A traditional palmyra syrup sweet recipe passed down from my grandmother...',
+              'Tamil • Recipe',
+            ),
+            const SizedBox(height: 10),
+          ],
+
+          const SizedBox(height: 6),
+
+          // View Post Library Button
+          _buildPillButton(
+            icon: Icons.menu_book_outlined,
+            label: 'View Post Library',
+            onPressed: _openPostLibrary,
+          ),
+
+          const SizedBox(height: 14),
+          const Divider(height: 1),
+
+          // Options below View Post Library: Drafts & Recently Deleted
+          _buildListItem(
+            icon: Icons.edit_document,
+            title: 'Drafts',
+            onTap: _openPostLibrary,
+          ),
+          const Divider(height: 1),
+          _buildListItem(
+            icon: Icons.delete_outline_rounded,
+            title: 'Recently Deleted',
+            onTap: _openPostLibrary,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildOverviewMetric({
-    required IconData icon,
-    required String value,
-    required String label,
-  }) {
-    return Row(
-      children: [
-        Icon(icon, color: _accentBrown, size: 22),
-        const SizedBox(width: 8),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildRecentPostPreview(Story story) {
+    return InkWell(
+      onTap: () => _openEditStory(story),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: _accentBrown.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: _accentBrown.withValues(alpha: 0.15)),
+        ),
+        child: Row(
           children: [
-            Text(
-              value,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: _primaryBrown,
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: _accentBrown.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.article_outlined,
+                color: _accentBrown,
+                size: 20,
               ),
             ),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 11.5,
-                color: Colors.black54,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    story.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.bold,
+                      color: _primaryBrown,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${story.language} • ${story.category}',
+                    style: const TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
+                ],
               ),
             ),
+            const Icon(Icons.edit_outlined, size: 18, color: _accentBrown),
           ],
         ),
-      ],
+      ),
     );
   }
 
-  Widget _buildMyContributionsSection() {
-    return _buildCardContainer(
-      title: 'MY CONTRIBUTIONS',
-      showChevron: true,
-      child: Column(
+  Widget _buildSampleRecentPostPreview(String title, String meta) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _accentBrown.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _accentBrown.withValues(alpha: 0.15)),
+      ),
+      child: Row(
         children: [
-          _buildListItem(
-            icon: Icons.article_outlined,
-            title: 'Published Stories',
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: _accentBrown.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.article_outlined,
+              color: _accentBrown,
+              size: 20,
+            ),
           ),
-          const Divider(height: 1),
-          _buildListItem(
-            icon: Icons.edit_document,
-            title: 'Drafts',
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.bold,
+                    color: _primaryBrown,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  meta,
+                  style: const TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+              ],
+            ),
           ),
-          const Divider(height: 1),
-          _buildListItem(
-            icon: Icons.delete_outline_rounded,
-            title: 'Recently Deleted',
-          ),
-          const SizedBox(height: 14),
-          _buildPillButton(
-            icon: Icons.menu_book_outlined,
-            label: 'View Post Library',
+          const Icon(
+            Icons.chevron_right_rounded,
+            size: 18,
+            color: Colors.black38,
           ),
         ],
       ),
@@ -405,7 +566,6 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
       showChevron: true,
       child: Column(
         children: [
-          // Banner Highlight
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -432,13 +592,20 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
 
           const SizedBox(height: 14),
 
-          // Stat Metrics Row
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _buildInsightMetric(Icons.visibility_outlined, '1.2K', 'Views'),
-              _buildInsightMetric(Icons.favorite_border_rounded, '328', 'Likes'),
-              _buildInsightMetric(Icons.chat_bubble_outline_rounded, '86', 'Comments'),
+              _buildInsightMetric(
+                Icons.favorite_border_rounded,
+                '328',
+                'Likes',
+              ),
+              _buildInsightMetric(
+                Icons.chat_bubble_outline_rounded,
+                '86',
+                'Comments',
+              ),
             ],
           ),
 
@@ -487,6 +654,7 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
     required String title,
     required Widget child,
     bool showChevron = false,
+    VoidCallback? onHeaderTap,
   }) {
     return Container(
       width: double.infinity,
@@ -506,25 +674,28 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.8,
-                  color: _primaryBrown,
+          InkWell(
+            onTap: onHeaderTap,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.8,
+                    color: _primaryBrown,
+                  ),
                 ),
-              ),
-              if (showChevron)
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  color: Colors.black45,
-                  size: 20,
-                ),
-            ],
+                if (showChevron)
+                  const Icon(
+                    Icons.chevron_right_rounded,
+                    color: Colors.black45,
+                    size: 20,
+                  ),
+              ],
+            ),
           ),
           const SizedBox(height: 12),
           child,
@@ -533,28 +704,32 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
     );
   }
 
-  Widget _buildListItem({required IconData icon, required String title}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        children: [
-          Icon(icon, color: _accentBrown, size: 20),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              title,
-              style: const TextStyle(
-                fontSize: 14.5,
-                color: Colors.black87,
+  Widget _buildListItem({
+    required IconData icon,
+    required String title,
+    VoidCallback? onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(
+          children: [
+            Icon(icon, color: _accentBrown, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(fontSize: 14.5, color: Colors.black87),
               ),
             ),
-          ),
-          const Icon(
-            Icons.chevron_right_rounded,
-            color: Colors.black38,
-            size: 18,
-          ),
-        ],
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: Colors.black38,
+              size: 18,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -577,10 +752,7 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
             ),
             Text(
               label,
-              style: const TextStyle(
-                fontSize: 11,
-                color: Colors.black54,
-              ),
+              style: const TextStyle(fontSize: 11, color: Colors.black54),
             ),
           ],
         ),
@@ -588,7 +760,11 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
     );
   }
 
-  Widget _buildPillButton({required IconData icon, required String label}) {
+  Widget _buildPillButton({
+    required IconData icon,
+    required String label,
+    VoidCallback? onPressed,
+  }) {
     return SizedBox(
       width: double.infinity,
       height: 42,
@@ -600,7 +776,7 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
             borderRadius: BorderRadius.circular(21),
           ),
         ),
-        onPressed: () {},
+        onPressed: onPressed ?? () {},
         icon: Icon(icon, color: _accentBrown, size: 18),
         label: Text(
           label,

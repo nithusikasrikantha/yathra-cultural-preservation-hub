@@ -1,9 +1,9 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-
 import '../models/story.dart';
 import '../services/youth_dummy_content_store.dart';
+import 'social_story_card.dart';
 
 class YouthStoryCard extends StatelessWidget {
   const YouthStoryCard({
@@ -16,7 +16,6 @@ class YouthStoryCard extends StatelessWidget {
     this.onLike,
     this.onComment,
   });
-
   final Story story;
   final VoidCallback onTap;
   final bool isBookmarked;
@@ -31,6 +30,17 @@ class YouthStoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (dummyMetadata == null) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: SocialStoryCard(
+          story: story,
+          onTap: onTap,
+          isBookmarked: isBookmarked,
+          onBookmark: onBookmark,
+        ),
+      );
+    }
     return Semantics(
       container: true,
       button: true,

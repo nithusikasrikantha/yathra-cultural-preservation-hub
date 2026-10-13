@@ -2,7 +2,9 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
-import '../share_story_page.dart';
+import 'share_story_page.dart';
+import 'story_details_page.dart';
+import '../../widgets/social_story_card.dart';
 import '../culture_connect_pages.dart';
 import '../../models/story.dart';
 import '../../services/published_content_signal.dart';
@@ -25,6 +27,9 @@ class _ElderHomePageState extends State<ElderHomePage> {
   static const Color _accentBrown = Color(0xFF6B4226);
   static const Color _cardBg = Color(0xFFFFFDF8);
 
+  final StoryService _storyService = const StoryService();
+
+  bool _isLoadingStories = true;
   int _selectedTab = 0; // 0: For You, 1: Following
   List<Story> _publishedStories = const [];
 
@@ -43,10 +48,14 @@ class _ElderHomePageState extends State<ElderHomePage> {
 
   Future<void> _loadPublishedStories() async {
     try {
-      final page = await const StoryService().fetchStories(page: 1, limit: 4);
-      if (mounted) setState(() => _publishedStories = page.items);
+      final page = await _storyService.fetchStories(page: 1, limit: 20);
+      if (mounted)
+        setState(() {
+          _publishedStories = page.items;
+          _isLoadingStories = false;
+        });
     } catch (_) {
-      // Keep the existing feed available when the stories service is offline.
+      if (mounted) setState(() => _isLoadingStories = false);
     }
   }
 
@@ -151,83 +160,100 @@ class _ElderHomePageState extends State<ElderHomePage> {
           const SizedBox(width: 6),
         ],
       ),
-      body: Stack(
-        children: [
-          SafeArea(
-            child: SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Greeting Header Banner
-                  _buildGreetingBanner(),
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: _loadPublishedStories,
+          color: _accentBrown,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(
+              parent: BouncingScrollPhysics(),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Greeting Header Banner
+                _buildGreetingBanner(),
 
-                  if (_publishedStories.isNotEmpty) ...[
-                    const SizedBox(height: 18),
-                    _buildRecentlyPublished(),
-                  ],
-
-                  const SizedBox(height: 20),
-
-                  // For You / Following Sub-Tabs
-                  _buildSubTabs(),
-
-                  const SizedBox(height: 20),
-
-                  // Feed Post 1
-                  _buildFeedCard(
-                    authorName: 'Thiruvarangan',
-                    authorAvatarUrl:
-                        'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80',
-                    timeMeta: '2h • Tamil • Traditional Story',
-                    storyText:
-                        'The story of our village harvest, when the whole community came together to celebrate the season...',
-                    imageUrl:
-                        'https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=80',
-                    likes: 24,
-                    comments: 8,
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  // Feed Post 2
-                  _buildFeedCard(
-                    authorName: 'Lakshmi Amma',
-                    authorAvatarUrl:
-                        'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=150&q=80',
-                    timeMeta: 'Yesterday • Tamil • Recipe',
-                    storyText:
-                        'A traditional recipe passed down from my grandmother. This dish brings back so many childhood memories...',
-                    imageUrl:
-                        'https://images.unsplash.com/photo-1610057099443-fde8c4d50f91?auto=format&fit=crop&w=800&q=80',
-                    likes: 41,
-                    comments: 12,
-                  ),
-
-                  const SizedBox(height: 90), // Spacing for floating button
+                if (_publishedStories.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  _buildRecentlyPublished(),
                 ],
-              ),
-            ),
-          ),
 
-          // Floating Action Button (+)
-          Positioned(
-            right: 22,
-            bottom: 22,
-            child: FloatingActionButton(
-              onPressed: _openShareStory,
-              backgroundColor: _accentBrown,
-              elevation: 6,
-              shape: const CircleBorder(),
-              child: const Icon(
-                Icons.add_rounded,
-                size: 34,
-                color: Colors.white,
-              ),
+                const SizedBox(height: 20),
+
+                // For You / Following Sub-Tabs
+                _buildSubTabs(),
+
+                const SizedBox(height: 20),
+
+                if (_isLoadingStories && _publishedStories.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20),
+                    child: Center(
+                      child: CircularProgressIndicator(color: _accentBrown),
+                    ),
+                  ),
+
+                // Real Stories Published from Backend
+                if (_publishedStories.isNotEmpty) ...[
+                  for (final story in _publishedStories) ...[
+                    _buildRealStoryCard(story),
+                    const SizedBox(height: 20),
+                  ],
+                ],
+
+                // Sample Feed Posts
+                _buildFeedCard(
+                  authorName: 'Thiruvarangan',
+                  authorAvatarUrl:
+                      'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80',
+                  timeMeta: '2h • Tamil • Traditional Story',
+                  storyTitle: 'The Village Harvest Celebration',
+                  storyText:
+                      'The story of our village harvest, when the whole community came together to celebrate the season...',
+                  imageUrl:
+                      'https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=80',
+                  location: 'Jaffna',
+                  timePeriod: 'Childhood era',
+                  community: 'Northern Tamil Heritage',
+                  likes: 24,
+                  comments: 8,
+                ),
+
+                const SizedBox(height: 20),
+
+                _buildFeedCard(
+                  authorName: 'Lakshmi Amma',
+                  authorAvatarUrl:
+                      'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=150&q=80',
+                  timeMeta: 'Yesterday • Tamil • Recipe',
+                  storyTitle: 'Traditional Palmyra Syrup Sweet Recipe',
+                  storyText:
+                      'A traditional recipe passed down from my grandmother. This dish brings back so many childhood memories...',
+                  imageUrl:
+                      'https://images.unsplash.com/photo-1610057099443-fde8c4d50f91?auto=format&fit=crop&w=800&q=80',
+                  location: 'Kandy',
+                  timePeriod: '1970s',
+                  community: 'Traditional Culinary Guild',
+                  likes: 41,
+                  comments: 12,
+                ),
+
+                const SizedBox(height: 100),
+              ],
             ),
           ),
-        ],
+        ),
+      ),
+
+      // Floating Action Button (+)
+      floatingActionButton: FloatingActionButton(
+        onPressed: _openShareStory,
+        backgroundColor: _accentBrown,
+        elevation: 6,
+        shape: const CircleBorder(),
+        child: const Icon(Icons.add_rounded, size: 34, color: Colors.white),
       ),
     );
   }
@@ -411,189 +437,226 @@ class _ElderHomePageState extends State<ElderHomePage> {
     );
   }
 
+  void _openStoryDetails({Story? story, Map<String, dynamic>? storyData}) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => StoryDetailsPage(story: story, storyData: storyData),
+      ),
+    );
+  }
+
+  Widget _buildRealStoryCard(Story story) => SocialStoryCard(
+    key: ValueKey(story.id),
+    story: story,
+    authorName: widget.userName,
+    onTap: () => _openStoryDetails(story: story),
+  );
+
   Widget _buildFeedCard({
     required String authorName,
     required String authorAvatarUrl,
     required String timeMeta,
+    required String storyTitle,
     required String storyText,
     required String imageUrl,
+    String? location,
+    String? timePeriod,
+    String? community,
     required int likes,
     required int comments,
   }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: _cardBg,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.grey.withValues(alpha: 0.15)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 6,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Author Header
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 20,
-                backgroundImage: NetworkImage(authorAvatarUrl),
-                backgroundColor: _accentBrown.withValues(alpha: 0.2),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      authorName,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: _primaryBrown,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      timeMeta,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.black54,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.more_horiz_rounded, color: Colors.grey),
-                onPressed: () {},
-              ),
-            ],
-          ),
+    final storyData = {
+      'title': storyTitle,
+      'category': timeMeta.split('•').last.trim(),
+      'language': 'Tamil',
+      'storyText': storyText,
+      'imageUrl': imageUrl,
+      'location': location,
+      'timePeriod': timePeriod,
+      'community': community,
+    };
 
-          const SizedBox(height: 12),
-
-          // Story Text Content
-          Text(
-            storyText,
-            style: const TextStyle(
-              fontSize: 14.5,
-              color: Colors.black87,
-              height: 1.4,
+    return InkWell(
+      onTap: () => _openStoryDetails(storyData: storyData),
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: _cardBg,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.grey.withValues(alpha: 0.15)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 6,
+              offset: const Offset(0, 3),
             ),
-          ),
-
-          const SizedBox(height: 14),
-
-          // Story Image with Overlaid "🔊 Listen" Button
-          ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: Stack(
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Author Header
+            Row(
               children: [
-                Image.network(
-                  imageUrl,
-                  height: 180,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => Container(
-                    height: 180,
-                    color: _accentBrown.withValues(alpha: 0.15),
-                    child: const Icon(
-                      Icons.image,
-                      size: 48,
-                      color: _accentBrown,
-                    ),
+                CircleAvatar(
+                  radius: 20,
+                  backgroundImage: NetworkImage(authorAvatarUrl),
+                  backgroundColor: _accentBrown.withValues(alpha: 0.2),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        authorName,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: _primaryBrown,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        timeMeta,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black54,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                Positioned(
-                  left: 12,
-                  bottom: 12,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 7,
+                IconButton(
+                  icon: const Icon(
+                    Icons.more_horiz_rounded,
+                    color: Colors.grey,
+                  ),
+                  onPressed: () {},
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 12),
+
+            // Story Text Content
+            Text(
+              storyText,
+              style: const TextStyle(
+                fontSize: 14.5,
+                color: Colors.black87,
+                height: 1.4,
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            // Story Image with Overlaid "🔊 Listen" Button
+            ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: Stack(
+                children: [
+                  Image.network(
+                    imageUrl,
+                    height: 180,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => Container(
+                      height: 180,
+                      color: _accentBrown.withValues(alpha: 0.15),
+                      child: const Icon(
+                        Icons.image,
+                        size: 48,
+                        color: _accentBrown,
+                      ),
                     ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.65),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.volume_up_rounded,
-                          color: Colors.white,
-                          size: 18,
-                        ),
-                        SizedBox(width: 6),
-                        Text(
-                          'Listen',
-                          style: TextStyle(
+                  ),
+                  Positioned(
+                    left: 12,
+                    bottom: 12,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 7,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.65),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.volume_up_rounded,
                             color: Colors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
+                            size: 18,
                           ),
-                        ),
-                      ],
+                          SizedBox(width: 6),
+                          Text(
+                            'Listen',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            // Social Footer Bar (Likes, Comments, Share)
+            Row(
+              children: [
+                const Icon(
+                  Icons.favorite_border_rounded,
+                  size: 20,
+                  color: Colors.black54,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '$likes',
+                  style: const TextStyle(fontSize: 13, color: Colors.black54),
+                ),
+                const SizedBox(width: 20),
+                const Icon(
+                  Icons.chat_bubble_outline_rounded,
+                  size: 20,
+                  color: Colors.black54,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '$comments',
+                  style: const TextStyle(fontSize: 13, color: Colors.black54),
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onPressed: () {},
+                  icon: const Icon(
+                    Icons.reply_rounded,
+                    size: 20,
+                    color: Colors.black54,
+                  ),
+                  label: const Text(
+                    'Share',
+                    style: TextStyle(fontSize: 13, color: Colors.black54),
                   ),
                 ),
               ],
             ),
-          ),
-
-          const SizedBox(height: 14),
-
-          // Social Footer Bar (Likes, Comments, Share)
-          Row(
-            children: [
-              const Icon(
-                Icons.favorite_border_rounded,
-                size: 20,
-                color: Colors.black54,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                '$likes',
-                style: const TextStyle(fontSize: 13, color: Colors.black54),
-              ),
-              const SizedBox(width: 20),
-              const Icon(
-                Icons.chat_bubble_outline_rounded,
-                size: 20,
-                color: Colors.black54,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                '$comments',
-                style: const TextStyle(fontSize: 13, color: Colors.black54),
-              ),
-              const Spacer(),
-              TextButton.icon(
-                style: TextButton.styleFrom(
-                  padding: EdgeInsets.zero,
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                onPressed: () {},
-                icon: const Icon(
-                  Icons.reply_rounded,
-                  size: 20,
-                  color: Colors.black54,
-                ),
-                label: const Text(
-                  'Share',
-                  style: TextStyle(fontSize: 13, color: Colors.black54),
-                ),
-              ),
-            ],
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

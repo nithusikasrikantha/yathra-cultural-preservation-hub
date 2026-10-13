@@ -1,0 +1,391 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../config/api_config.dart';
+import '../models/story.dart';
+
+class SocialStoryCard extends StatefulWidget {
+  const SocialStoryCard({
+    super.key,
+    required this.story,
+    required this.onTap,
+    this.authorName = 'Elder Knowledge Keeper',
+    this.isBookmarked = false,
+    this.onBookmark,
+  });
+  final Story story;
+  final VoidCallback onTap;
+  final String authorName;
+  final bool isBookmarked;
+  final VoidCallback? onBookmark;
+  @override
+  State<SocialStoryCard> createState() => _SocialStoryCardState();
+}
+
+class _SocialStoryCardState extends State<SocialStoryCard> {
+  static const _ink = Color(0xFF3C261C);
+  static const _rust = Color(0xFF984A2B);
+  bool _liked = false;
+
+  String get _time {
+    final date = widget.story.createdAt;
+    if (date == null) return 'Shared story';
+    final age = DateTime.now().difference(date);
+    if (age.inMinutes < 1) return 'Just now';
+    if (age.inHours < 1) return '${age.inMinutes}m ago';
+    if (age.inDays < 1) return '${age.inHours}h ago';
+    if (age.inDays < 7) return '${age.inDays}d ago';
+    return '${date.day}/${date.month}/${date.year}';
+  }
+
+  Future<void> _share() async {
+    await Clipboard.setData(
+      ClipboardData(text: '${widget.story.title}\n\n${widget.story.storyText}'),
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Story copied. Paste it into a message to share.'),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final story = widget.story;
+    final image =
+        story.bannerImage ??
+        (story.additionalImages.isNotEmpty
+            ? story.additionalImages.first
+            : null);
+    final imageCount =
+        story.additionalImages.length + (story.bannerImage != null ? 1 : 0);
+    return Material(
+      color: const Color(0xFFFFFDF9),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: const BorderSide(color: Color(0xFFE9DFD3)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: widget.onTap,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 10, 12),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 22,
+                    backgroundColor: const Color(0xFFEAD9C6),
+                    child: Text(
+                      widget.authorName.isEmpty
+                          ? 'Y'
+                          : widget.authorName.substring(0, 1).toUpperCase(),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: _rust,
+                        fontSize: 20,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 11),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.authorName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: _ink,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          '$_time · ${story.language}',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF88796D),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (widget.onBookmark != null)
+                    IconButton(
+                      tooltip: widget.isBookmarked
+                          ? 'Remove bookmark'
+                          : 'Save story',
+                      onPressed: widget.onBookmark,
+                      icon: Icon(
+                        widget.isBookmarked
+                            ? Icons.bookmark
+                            : Icons.bookmark_border_rounded,
+                        color: _rust,
+                        size: 22,
+                      ),
+                    )
+                  else
+                    IconButton(
+                      tooltip: 'Read full story',
+                      onPressed: widget.onTap,
+                      icon: const Icon(
+                        Icons.more_horiz,
+                        color: Color(0xFF88796D),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    story.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 21,
+                      height: 1.25,
+                      fontWeight: FontWeight.w700,
+                      color: _ink,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    story.storyText,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      height: 1.55,
+                      color: Color(0xFF625347),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Read story →',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _rust,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (image != null && image.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: SizedBox(
+                    height: 180,
+                    width: double.infinity,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Image.network(
+                          image.startsWith('/')
+                              ? '${ApiConfig.baseUrl}$image'
+                              : image,
+                          fit: BoxFit.cover,
+                          loadingBuilder: (context, child, progress) =>
+                              progress == null
+                              ? child
+                              : const ColoredBox(
+                                  color: Color(0xFFEFE6D9),
+                                  child: Center(
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: _rust,
+                                    ),
+                                  ),
+                                ),
+                          errorBuilder: (_, error, trace) => const ColoredBox(
+                            color: Color(0xFFEFE6D9),
+                            child: Center(
+                              child: Icon(
+                                Icons.image_not_supported_outlined,
+                                color: _rust,
+                                size: 32,
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (imageCount > 1)
+                          Positioned(
+                            top: 12,
+                            right: 12,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.black54,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.collections_outlined,
+                                    color: Colors.white,
+                                    size: 14,
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    '$imageCount photos',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        if (story.audioPath?.isNotEmpty == true)
+                          Positioned(
+                            left: 12,
+                            bottom: 12,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 7,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.black54,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.headphones,
+                                    color: Colors.white,
+                                    size: 14,
+                                  ),
+                                  SizedBox(width: 5),
+                                  Text(
+                                    'Voice story',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              child: Wrap(
+                spacing: 7,
+                runSpacing: 7,
+                children: [
+                  _chip(Icons.grass_outlined, story.category),
+                  if (story.location?.isNotEmpty == true)
+                    _chip(Icons.location_on_outlined, story.location!),
+                  if (story.timePeriod?.isNotEmpty == true &&
+                      story.timePeriod != 'Skip')
+                    _chip(Icons.history, story.timePeriod!),
+                ],
+              ),
+            ),
+            const Divider(height: 1, color: Color(0xFFECE4DA)),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _action(
+                      _liked
+                          ? Icons.favorite_rounded
+                          : Icons.favorite_border_rounded,
+                      _liked ? 'Liked' : 'Like',
+                      () => setState(() => _liked = !_liked),
+                      active: _liked,
+                    ),
+                  ),
+                  Expanded(
+                    child: _action(
+                      Icons.chat_bubble_outline_rounded,
+                      'Comment',
+                      widget.onTap,
+                    ),
+                  ),
+                  Expanded(
+                    child: _action(Icons.ios_share_outlined, 'Share', _share),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _chip(IconData icon, String text) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF3ECE2),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: _rust),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Text(
+            text,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 10, color: _ink),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _action(
+    IconData icon,
+    String label,
+    VoidCallback onTap, {
+    bool active = false,
+  }) => TextButton(
+    onPressed: onTap,
+    style: TextButton.styleFrom(
+      foregroundColor: active ? _rust : const Color(0xFF75675B),
+      minimumSize: const Size(0, 44),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+    ),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 19),
+        const SizedBox(width: 5),
+        Flexible(
+          child: Text(
+            label,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+          ),
+        ),
+      ],
+    ),
+  );
+}

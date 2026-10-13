@@ -27,6 +27,11 @@ const storySchema = new mongoose.Schema(
       default: null,
     },
     imageDataUri: { type: String, default: '' },
+    bannerImage: { type: String, default: null },
+    additionalImages: { type: [String], default: [] },
+    location: { type: String, default: '' },
+    timePeriod: { type: String, default: '' },
+    community: { type: String, default: '' },
     tags: {
       type: [String],
       default: [],

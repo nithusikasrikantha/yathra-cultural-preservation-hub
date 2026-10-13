@@ -5,8 +5,7 @@ import 'package:flutter/foundation.dart';
 class ApiConfig {
   const ApiConfig._();
 
-  static const String _baseUrlOverride =
-      String.fromEnvironment('API_BASE_URL');
+  static const String _baseUrlOverride = String.fromEnvironment('API_BASE_URL');
 
   static String get baseUrl {
     if (_baseUrlOverride.isNotEmpty) {
@@ -14,13 +13,14 @@ class ApiConfig {
     }
 
     if (kIsWeb) {
-      return 'http://localhost:5000';
+      return 'http://localhost:5001';
     }
 
     if (Platform.isAndroid) {
-      return 'http://10.0.2.2:5000';
+      // 127.0.0.1 works over USB cable via adb reverse tcp:5001 tcp:5001
+      return 'http://127.0.0.1:5001';
     }
 
-    return 'http://localhost:5000';
+    return 'http://127.0.0.1:5001';
   }
 }

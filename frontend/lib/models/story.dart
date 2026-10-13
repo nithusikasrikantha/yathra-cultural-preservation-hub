@@ -9,6 +9,11 @@ class Story {
     this.audioPath,
     this.imageDataUri,
     this.createdAt,
+    this.bannerImage,
+    this.additionalImages = const [],
+    this.location,
+    this.timePeriod,
+    this.community,
   });
 
   final String id;
@@ -20,6 +25,11 @@ class Story {
   final String? audioPath;
   final String? imageDataUri;
   final DateTime? createdAt;
+  final String? bannerImage;
+  final List<String> additionalImages;
+  final String? location;
+  final String? timePeriod;
+  final String? community;
 
   factory Story.fromJson(Map<String, dynamic> json) {
     return Story(
@@ -31,6 +41,13 @@ class Story {
       tags: _stringList(json['tags']),
       audioPath: _optionalString(json['audioPath']),
       imageDataUri: _optionalString(json['imageDataUri']),
+      bannerImage:
+          _optionalString(json['bannerImage']) ??
+          _optionalString(json['imageUrl']),
+      additionalImages: _stringList(json['additionalImages']),
+      location: _optionalString(json['location']),
+      timePeriod: _optionalString(json['timePeriod']),
+      community: _optionalString(json['community']),
       createdAt: DateTime.tryParse(_optionalString(json['createdAt']) ?? ''),
     );
   }

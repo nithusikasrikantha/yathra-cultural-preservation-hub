@@ -10,6 +10,7 @@ const { errorHandler, notFound } = require('./middleware/errorMiddleware');
 const { nodeEnv } = require('./config/env');
 
 const app = express();
+const path = require('path');
 
 // Security Middleware
 app.use(helmet());
@@ -25,6 +26,8 @@ app.use(express.json({ limit: '4mb' }));
 app.use(express.urlencoded({ extended: false }));
 
 // Routes
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use('/api/images', require('./routes/imageRoutes'));
 app.use('/api/stories', storyRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/ai', aiRoutes);
