@@ -28,6 +28,8 @@ void main() {
                   category: 'Traditional Story',
                   language: 'Tamil',
                   storyText: 'A memory from our village.',
+                  aiSummary: 'An approved preview of village memories.',
+                  summaryStatus: 'approved',
                   bannerImage: '/uploads/banner.jpg',
                   additionalImages: const ['/uploads/one.jpg'],
                   location: 'Jaffna',
@@ -47,7 +49,28 @@ void main() {
     expect(provider.url, '${ApiConfig.baseUrl}/uploads/banner.jpg');
     expect(find.text('2 photos'), findsOneWidget);
     expect(find.text('Jaffna'), findsOneWidget);
-    expect(find.text('3h ago · Tamil'), findsOneWidget);
+    expect(
+      find.text('An approved preview of village memories.'),
+      findsOneWidget,
+    );
+    expect(find.text('A memory from our village.'), findsNothing);
+    expect(
+      tester.getTopLeft(find.byType(Image)).dy,
+      lessThan(tester.getTopLeft(find.text('Traditional Story')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('Traditional Story')).dy,
+      lessThan(tester.getTopLeft(find.text('Village Harvest')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('Village Harvest')).dy,
+      lessThan(
+        tester
+            .getTopLeft(find.text('An approved preview of village memories.'))
+            .dy,
+      ),
+    );
+    expect(find.text('3h ago'), findsOneWidget);
     await tester.ensureVisible(find.text('Like'));
     await tester.tap(find.text('Like'));
     await tester.pump();

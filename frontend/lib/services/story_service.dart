@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../config/api_config.dart';
 import '../models/story.dart';
+import 'auth_service.dart';
 
 class StoryService {
   const StoryService();
@@ -42,6 +43,9 @@ class StoryService {
     int limit = 10,
     String? search,
     String? category,
+    String? communityId,
+    bool following = false,
+    bool mine = false,
     List<String> tags = const [],
   }) async {
     final queryParameters = <String, String>{
@@ -49,6 +53,10 @@ class StoryService {
       'limit': '$limit',
     };
 
+    if (communityId?.isNotEmpty == true)
+      queryParameters['communityId'] = communityId!;
+    if (following) queryParameters['following'] = 'true';
+    if (mine) queryParameters['mine'] = 'true';
     final trimmedSearch = search?.trim();
     if (trimmedSearch != null && trimmedSearch.isNotEmpty) {
       queryParameters['search'] = trimmedSearch;
@@ -71,7 +79,14 @@ class StoryService {
       '${ApiConfig.baseUrl}/api/stories',
     ).replace(queryParameters: queryParameters);
 
-    final response = await http.get(uri).timeout(const Duration(seconds: 10));
+    final response = await http
+        .get(
+          uri,
+          headers: (following || mine)
+              ? await AuthService.authenticatedHeaders()
+              : null,
+        )
+        .timeout(const Duration(seconds: 10));
 
     if (response.statusCode != 200) {
       throw Exception(_errorMessage(response));

@@ -173,6 +173,9 @@ class _ElderKnowledgeDiscoveryPageState
       'location': story.location,
       'timePeriod': story.timePeriod,
       'community': story.community,
+      'communityId': story.communityId,
+      'aiSummary': story.aiSummary,
+      'summaryStatus': story.summaryStatus,
     };
 
     final result = await Navigator.of(context).push<bool>(

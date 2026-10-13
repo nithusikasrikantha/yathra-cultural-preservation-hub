@@ -32,6 +32,9 @@ const storySchema = new mongoose.Schema(
     location: { type: String, default: '' },
     timePeriod: { type: String, default: '' },
     community: { type: String, default: '' },
+    aiSummary: { type: String, default: null, maxlength: 700 },
+    summaryStatus: { type: String, enum: ['approved', 'skipped', 'outdated'], default: 'skipped' },
+    summaryUpdatedAt: { type: Date, default: null },
     tags: {
       type: [String],
       default: [],

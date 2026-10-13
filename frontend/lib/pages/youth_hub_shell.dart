@@ -21,6 +21,7 @@ class YouthHubShell extends StatefulWidget {
 class _YouthHubShellState extends State<YouthHubShell> {
   final AuthService _authService = AuthService();
   int _currentIndex = 0;
+  int _profileRevision = 0;
   bool? _profileComplete;
   String _role = 'youth';
   String _name = '';
@@ -57,7 +58,11 @@ class _YouthHubShellState extends State<YouthHubShell> {
   }
 
   void _selectTab(int index) {
-    if (_currentIndex != index) setState(() => _currentIndex = index);
+    if (_currentIndex != index)
+      setState(() {
+        _currentIndex = index;
+        if (index == 3) _profileRevision++;
+      });
   }
 
   @override
@@ -69,21 +74,29 @@ class _YouthHubShellState extends State<YouthHubShell> {
         index: _currentIndex,
         children: [
           isElder
-              ? ElderHomePage(
-                  userName: _name,
-                  onProfile: () => _selectTab(3),
-                )
+              ? ElderHomePage(userName: _name, onProfile: () => _selectTab(3))
               : YouthHomePage(
                   userName: _name,
                   profileComplete: _profileComplete,
                   onExplore: () => _selectTab(1),
                   onProfile: () => _selectTab(3),
                 ),
-          const ExplorePage(),
+          ExplorePage(canConnect: !isElder),
           CulturalMapPage(userRole: _role),
           isElder
-              ? ElderProfilePage(userName: _name)
+              ? ElderProfilePage(
+                  key: ValueKey('elder-profile-$_profileRevision'),
+                  userName: _name,
+                  onHome: () => _selectTab(0),
+                  onProfileSaved: (profile) {
+                    setState(
+                      () => _name = profile['name']?.toString() ?? _name,
+                    );
+                  },
+                )
               : YouthProfilePage(
+                  key: ValueKey('youth-profile-$_profileRevision'),
+                  onHome: () => _selectTab(0),
                   onProfileSaved: (profile) {
                     setState(() {
                       _profileComplete = profile['profileComplete'] == true;

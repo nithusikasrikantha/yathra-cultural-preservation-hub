@@ -52,6 +52,7 @@ class _SocialStoryCardState extends State<SocialStoryCard> {
   @override
   Widget build(BuildContext context) {
     final story = widget.story;
+    final author = story.authorName ?? widget.authorName;
     final image =
         story.bannerImage ??
         (story.additionalImages.isNotEmpty
@@ -79,9 +80,9 @@ class _SocialStoryCardState extends State<SocialStoryCard> {
                     radius: 22,
                     backgroundColor: const Color(0xFFEAD9C6),
                     child: Text(
-                      widget.authorName.isEmpty
+                      author.isEmpty
                           ? 'Y'
-                          : widget.authorName.substring(0, 1).toUpperCase(),
+                          : author.substring(0, 1).toUpperCase(),
                       style: const TextStyle(
                         fontWeight: FontWeight.w700,
                         color: _rust,
@@ -95,7 +96,7 @@ class _SocialStoryCardState extends State<SocialStoryCard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          widget.authorName,
+                          author,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -106,7 +107,11 @@ class _SocialStoryCardState extends State<SocialStoryCard> {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          '$_time · ${story.language}',
+                          [
+                            if (story.community?.isNotEmpty == true)
+                              story.community!,
+                            _time,
+                          ].join(' \u00b7 '),
                           style: const TextStyle(
                             fontSize: 11,
                             color: Color(0xFF88796D),
@@ -115,66 +120,12 @@ class _SocialStoryCardState extends State<SocialStoryCard> {
                       ],
                     ),
                   ),
-                  if (widget.onBookmark != null)
-                    IconButton(
-                      tooltip: widget.isBookmarked
-                          ? 'Remove bookmark'
-                          : 'Save story',
-                      onPressed: widget.onBookmark,
-                      icon: Icon(
-                        widget.isBookmarked
-                            ? Icons.bookmark
-                            : Icons.bookmark_border_rounded,
-                        color: _rust,
-                        size: 22,
-                      ),
-                    )
-                  else
-                    IconButton(
-                      tooltip: 'Read full story',
-                      onPressed: widget.onTap,
-                      icon: const Icon(
-                        Icons.more_horiz,
-                        color: Color(0xFF88796D),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    story.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 21,
-                      height: 1.25,
-                      fontWeight: FontWeight.w700,
-                      color: _ink,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    story.storyText,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      height: 1.55,
-                      color: Color(0xFF625347),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Read story →',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: _rust,
-                      fontWeight: FontWeight.w600,
+                  IconButton(
+                    tooltip: 'Read full story',
+                    onPressed: widget.onTap,
+                    icon: const Icon(
+                      Icons.more_horiz,
+                      color: Color(0xFF88796D),
                     ),
                   ),
                 ],
@@ -291,17 +242,48 @@ class _SocialStoryCardState extends State<SocialStoryCard> {
                 ),
               ),
             Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _chip(Icons.grass_outlined, story.category),
+                  const SizedBox(height: 8),
+                  Text(
+                    story.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontFamily: 'Serif',
+                      fontSize: 21,
+                      height: 1.25,
+                      fontWeight: FontWeight.w700,
+                      color: _ink,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    story.preview,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      height: 1.55,
+                      color: Color(0xFF625347),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
               child: Wrap(
                 spacing: 7,
                 runSpacing: 7,
                 children: [
-                  _chip(Icons.grass_outlined, story.category),
+                  _chip(Icons.language_outlined, story.language),
+                  _chip(Icons.schedule, '${story.readingMinutes} min read'),
                   if (story.location?.isNotEmpty == true)
                     _chip(Icons.location_on_outlined, story.location!),
-                  if (story.timePeriod?.isNotEmpty == true &&
-                      story.timePeriod != 'Skip')
-                    _chip(Icons.history, story.timePeriod!),
                 ],
               ),
             ),
@@ -330,6 +312,20 @@ class _SocialStoryCardState extends State<SocialStoryCard> {
                   Expanded(
                     child: _action(Icons.ios_share_outlined, 'Share', _share),
                   ),
+                  if (widget.onBookmark != null)
+                    IconButton(
+                      tooltip: widget.isBookmarked
+                          ? 'Remove bookmark'
+                          : 'Save story',
+                      onPressed: widget.onBookmark,
+                      icon: Icon(
+                        widget.isBookmarked
+                            ? Icons.bookmark
+                            : Icons.bookmark_border_rounded,
+                        color: _rust,
+                        size: 21,
+                      ),
+                    ),
                 ],
               ),
             ),

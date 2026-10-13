@@ -11,6 +11,8 @@ class AuthService {
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
   static const String _tokenKey = 'auth_token';
 
+  static Future<String?> currentRole() => _storage.read(key: 'auth_user_role');
+
   static Future<Map<String, String>> authenticatedHeaders() async {
     final token = await _storage.read(key: _tokenKey);
 
@@ -67,7 +69,10 @@ class AuthService {
       await _storage.write(key: 'auth_user_id', value: user['_id'] as String);
     }
     if (user['role'] is String) {
-      await _storage.write(key: 'auth_user_role', value: user['role'] as String);
+      await _storage.write(
+        key: 'auth_user_role',
+        value: user['role'] as String,
+      );
     }
 
     return result;
@@ -92,7 +97,10 @@ class AuthService {
       await _storage.write(key: 'auth_user_id', value: user['_id'] as String);
     }
     if (user['role'] is String) {
-      await _storage.write(key: 'auth_user_role', value: user['role'] as String);
+      await _storage.write(
+        key: 'auth_user_role',
+        value: user['role'] as String,
+      );
     }
 
     return result;
@@ -112,17 +120,30 @@ class AuthService {
   }
 
   Future<Map<String, dynamic>> getElderProfile() async {
-    try {
-      final result = await _apiService.get(
-        ApiEndpoints.elderProfile,
-        headers: await _authenticatedHeaders(),
-      );
+    final result = await _apiService.get(
+      ApiEndpoints.elderProfile,
+      headers: await _authenticatedHeaders(),
+    );
+    return Map<String, dynamic>.from(result['profile'] as Map);
+  }
 
-      if (result is Map<String, dynamic> && result['profile'] is Map) {
-        return Map<String, dynamic>.from(result['profile'] as Map);
-      }
-    } catch (_) {}
-    return {};
+  Future<Map<String, dynamic>> getProfileStats() async {
+    final result = await _apiService.get(
+      '/api/auth/profile-stats',
+      headers: await _authenticatedHeaders(),
+    );
+    return Map<String, dynamic>.from(result as Map);
+  }
+
+  Future<Map<String, dynamic>> updateElderProfile(
+    Map<String, dynamic> fields,
+  ) async {
+    final result = await _apiService.put(
+      ApiEndpoints.elderProfile,
+      headers: await _authenticatedHeaders(),
+      body: fields,
+    );
+    return Map<String, dynamic>.from(result['profile'] as Map);
   }
 
   Future<Map<String, dynamic>> updateYouthProfile({

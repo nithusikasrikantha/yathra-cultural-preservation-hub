@@ -1,13 +1,11 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import '../models/connection_model.dart';
 import '../models/user_model.dart';
 import '../services/culture_connect_service.dart';
 import '../services/culture_assistant_fallback.dart';
 import '../services/published_content_signal.dart';
 import 'youth_story_detail_page.dart';
+import 'elder/share_story_page.dart';
 
 class MyConnectionsPage extends StatefulWidget {
   const MyConnectionsPage({super.key, required this.isElder});
@@ -29,16 +27,18 @@ class _MyConnectionsPageState extends State<MyConnectionsPage>
 
   String _workspaceStatusLabel(Connection connection) {
     final status = connection.workspaceItems.isNotEmpty
-        ? connection.workspaceItems.last['status']?.toString() ?? connection.workspaceStatus
+        ? connection.workspaceItems.last['status']?.toString() ??
+              connection.workspaceStatus
         : connection.workspaceStatus;
     return switch (status) {
-        'under_review' => 'Under Review',
-        'changes_requested' => 'Changes Requested',
-        'approved' => 'Approved',
-        'published' => 'Published',
-        _ => 'Workspace Draft',
-      };
+      'under_review' => 'Under Review',
+      'changes_requested' => 'Changes Requested',
+      'approved' => 'Approved',
+      'published' => 'Published',
+      _ => 'Workspace Draft',
+    };
   }
+
   @override
   void initState() {
     super.initState();
@@ -380,13 +380,12 @@ class _ChatPageState extends State<ChatPage> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
   List<Map<String, dynamic>> _messages = [];
+  List<String> _suggestedQuestions = [];
   String? _error;
   bool _sending = false;
-  String? _myId;
-  bool _consentYouth = false;
-  bool _consentElder = false;
   bool _assistantBusy = false;
-  bool get _isYouth => _myId != null && widget.connection.requesterId == _myId;
+  bool _usingQuestionFallback = false;
+  String? _myId;
   @override
   void initState() {
     super.initState();
@@ -408,239 +407,14 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _load() async {
     try {
       final m = await _service.getMessages(widget.connection.id);
-      final consent = await _service.getChatConsent(widget.connection.id);
       if (mounted) {
         setState(() {
           _messages = m;
-          _consentYouth = consent['youth'] == true;
-          _consentElder = consent['elder'] == true;
           _error = null;
         });
       }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
-    }
-  }
-
-  Future<void> _setConsent(bool consent) async {
-    try {
-      final value = await _service.setChatConsent(
-        widget.connection.id,
-        consent,
-      );
-      if (mounted)
-        setState(() {
-          _consentYouth = value['youth'] == true;
-          _consentElder = value['elder'] == true;
-        });
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              consent
-                  ? 'Your consent is saved. Both participants must consent before creating a draft.'
-                  : 'Your consent was withdrawn.',
-            ),
-          ),
-        );
-    } catch (e) {
-      if (mounted) _showChatError(e);
-    }
-  }
-
-  void _showChatError(Object e) => ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
-  );
-
-  Future<void> _suggestQuestions(String action) async {
-    if (_assistantBusy) return;
-    setState(() => _assistantBusy = true);
-    try {
-      List<String> questions;
-      var usingFallback = false;
-      try {
-        final response = await _service.askAssistant(
-          action,
-          widget.connection.id,
-          topic: widget.connection.communityName,
-        );
-        final result = Map<String, dynamic>.from(response['result'] as Map);
-        questions = (result['questions'] as List? ?? [])
-            .map((e) => e.toString())
-            .toList();
-      } catch (_) {
-        usingFallback = true;
-        final lastElderReply =
-            _messages.reversed
-                .firstWhere(
-                  (message) => message['sender']?.toString() != _myId,
-                  orElse: () => const {},
-                )['text']
-                ?.toString() ??
-            '';
-        questions = CultureAssistantFallback.questions(
-          topic: widget.connection.communityName,
-          answer: action == 'follow-up-questions' ? lastElderReply : '',
-        );
-      }
-      if (!mounted || questions.isEmpty) return;
-      await showModalBottomSheet<void>(
-        context: context,
-        builder: (sheetContext) => SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            shrinkWrap: true,
-            children: [
-              Text(
-                action == 'conversation-starters'
-                    ? 'Suggested Questions'
-                    : 'Follow-up Questions',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              if (usingFallback)
-                const Padding(
-                  padding: EdgeInsets.only(top: 6),
-                  child: Text(
-                    'AI service is unavailable. These are basic prompts based on your conversation.',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                ),
-              const SizedBox(height: 10),
-              for (final question in questions)
-                ListTile(
-                  leading: const Icon(Icons.auto_awesome),
-                  title: Text(question),
-                  onTap: () {
-                    _input.text = question;
-                    _input.selection = TextSelection.collapsed(
-                      offset: question.length,
-                    );
-                    Navigator.pop(sheetContext);
-                  },
-                ),
-            ],
-          ),
-        ),
-      );
-    } catch (e) {
-      if (mounted) _showChatError(e);
-    } finally {
-      if (mounted) setState(() => _assistantBusy = false);
-    }
-  }
-
-  Future<void> _createDraft() async {
-    if (!_isYouth || _assistantBusy) return;
-    if (_messages.isEmpty) {
-      _showChatError(
-        Exception('Start the conversation before creating a draft.'),
-      );
-      return;
-    }
-    if (!_consentYouth) {
-      await _setConsent(true);
-      return;
-    }
-    if (!_consentElder) {
-      _showChatError(
-        Exception('Waiting for the elder to consent to using this chat.'),
-      );
-      return;
-    }
-    setState(() => _assistantBusy = true);
-    try {
-      Map<String, dynamic> draft;
-      var usingFallback = false;
-      try {
-        final response = await _service.askAssistant(
-          'chat-to-story',
-          widget.connection.id,
-        );
-        draft = Map<String, dynamic>.from(response['result'] as Map);
-      } catch (_) {
-        usingFallback = true;
-        draft = CultureAssistantFallback.chatDraft(
-          topic: widget.connection.communityName,
-          messages: _messages,
-          currentUserId: _myId ?? '',
-        );
-      }
-      if (!mounted) return;
-      final useDraft = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: Text(
-            usingFallback ? 'Conversation Draft' : 'AI Draft Preview',
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (usingFallback)
-                  const Text(
-                    'AI service is unavailable. This draft uses only the messages in this chat.',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                Text(
-                  draft['title']?.toString() ?? '',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                Text(draft['description']?.toString() ?? ''),
-                const SizedBox(height: 12),
-                Text(draft['content']?.toString() ?? ''),
-                const SizedBox(height: 12),
-                Text(
-                  'Cultural significance: ${draft['culturalSignificance'] ?? ''}',
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Review every detail with the elder before sending for review.',
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Close'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Use in Workspace'),
-            ),
-          ],
-        ),
-      );
-      if (useDraft != true || !mounted) return;
-      final created = await _service.createWorkspaceItem(widget.connection.id);
-      final workspaceItem = Map<String, dynamic>.from(created['item'] as Map);
-      final workspaceItemId = workspaceItem['_id']?.toString();
-      await _service.saveWorkspace(
-        widget.connection.id,
-        workspaceItemId: workspaceItemId,
-        title: draft['title']?.toString() ?? '',
-        content: draft['content']?.toString() ?? '',
-        instructions: draft['description']?.toString() ?? '',
-        culturalSignificance:
-            draft['culturalSignificance']?.toString() ??
-            'To be confirmed by the elder.',
-      );
-      if (!mounted) return;
-      await Navigator.push(
-        context,
-        MaterialPageRoute<void>(
-          builder: (_) => WorkspaceEditorPage(
-            connection: widget.connection,
-            isElder: false,
-            workspaceItemId: workspaceItemId,
-          ),
-        ),
-      );
-    } catch (e) {
-      if (mounted) _showChatError(e);
-    } finally {
-      if (mounted) setState(() => _assistantBusy = false);
     }
   }
 
@@ -663,6 +437,73 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
+  Future<void> _suggestQuestions({required bool followUp}) async {
+    if (_assistantBusy) return;
+    if (followUp && _messages.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Start chatting first to get follow-up questions.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _assistantBusy = true;
+      _suggestedQuestions = [];
+    });
+    var usingFallback = false;
+    try {
+      List<String> questions;
+      try {
+        final response = await _service.askAssistant(
+          followUp ? 'follow-up-questions' : 'conversation-starters',
+          widget.connection.id,
+          topic: widget.connection.communityName.isNotEmpty
+              ? widget.connection.communityName
+              : widget.peer.profileInfo.interests.join(', '),
+        );
+        final result = Map<String, dynamic>.from(response['result'] as Map);
+        questions = (result['questions'] as List? ?? [])
+            .map((question) => question.toString().trim())
+            .where((question) => question.isNotEmpty)
+            .toList();
+        if (questions.isEmpty) throw Exception('No questions returned.');
+      } catch (_) {
+        usingFallback = true;
+        final latestElderMessage = _messages.lastWhere(
+          (message) => message['sender']?.toString() != _myId,
+          orElse: () => <String, dynamic>{},
+        );
+        questions = CultureAssistantFallback.questions(
+          topic: widget.connection.communityName.isNotEmpty
+              ? widget.connection.communityName
+              : widget.peer.profileInfo.interests.join(', '),
+          answer: followUp ? latestElderMessage['text']?.toString() ?? '' : '',
+        );
+      }
+      if (!mounted) return;
+      setState(() {
+        _suggestedQuestions = questions;
+        _usingQuestionFallback = usingFallback;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _assistantBusy = false);
+    }
+  }
+
+  void _useSuggestedQuestion(String question) {
+    _input
+      ..text = question
+      ..selection = TextSelection.collapsed(offset: question.length);
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: const Color(0xFFF8F3EA),
@@ -674,15 +515,7 @@ class _ChatPageState extends State<ChatPage> {
           Expanded(child: Text(widget.peer.name)),
         ],
       ),
-      actions: [
-        if (_isYouth)
-          TextButton.icon(
-            onPressed: _assistantBusy ? null : _createDraft,
-            icon: const Icon(Icons.auto_awesome, size: 18),
-            label: const Text('AI Draft'),
-          ),
-        IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
-      ],
+      actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh))],
     ),
     body: Column(
       children: [
@@ -729,18 +562,6 @@ class _ChatPageState extends State<ChatPage> {
                           ),
                         ),
                       ],
-                      if (_isYouth && !mine)
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: TextButton.icon(
-                            onPressed: _assistantBusy
-                                ? null
-                                : () =>
-                                      _suggestQuestions('follow-up-questions'),
-                            icon: const Icon(Icons.auto_awesome, size: 16),
-                            label: const Text('Ask Follow-up'),
-                          ),
-                        ),
                     ],
                   ),
                 ),
@@ -750,65 +571,102 @@ class _ChatPageState extends State<ChatPage> {
         ),
         SafeArea(
           top: false,
-          child: Padding(
-            padding: const EdgeInsets.all(10),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _consentYouth && _consentElder
-                            ? 'Both participants consented to chat draft use.'
-                            : 'Chat-to-draft requires both participants consent.',
-                        style: const TextStyle(fontSize: 12),
+          child: Material(
+            color: Colors.white,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: _assistantBusy
+                            ? null
+                            : () => _suggestQuestions(followUp: false),
+                        icon: const Icon(Icons.lightbulb_outline, size: 18),
+                        label: const Text('Suggest Questions'),
                       ),
-                    ),
-                    TextButton(
-                      onPressed: () => _setConsent(
-                        !(_isYouth ? _consentYouth : _consentElder),
+                      OutlinedButton.icon(
+                        onPressed: _assistantBusy || _messages.isEmpty
+                            ? null
+                            : () => _suggestQuestions(followUp: true),
+                        icon: const Icon(Icons.auto_awesome, size: 18),
+                        label: const Text('Follow-up Questions'),
                       ),
-                      child: Text(
-                        (_isYouth ? _consentYouth : _consentElder)
-                            ? 'Withdraw'
-                            : 'I Consent',
-                      ),
-                    ),
-                  ],
-                ),
-                if (_isYouth)
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: OutlinedButton.icon(
-                      onPressed: _assistantBusy
-                          ? null
-                          : () => _suggestQuestions('conversation-starters'),
-                      icon: const Icon(Icons.auto_awesome),
-                      label: Text(
-                        _assistantBusy ? 'Thinking...' : 'Suggest Questions',
-                      ),
-                    ),
+                    ],
                   ),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _input,
-                        minLines: 1,
-                        maxLines: 4,
-                        decoration: const InputDecoration(
-                          hintText: 'Type a message...',
+                  if (_assistantBusy)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: LinearProgressIndicator(minHeight: 2),
+                    ),
+                  if (_suggestedQuestions.isNotEmpty) ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _usingQuestionFallback
+                                ? 'Sample questions'
+                                : 'AI suggested questions',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF6B4226),
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          tooltip: 'Close suggestions',
+                          onPressed: () => setState(() {
+                            _suggestedQuestions = [];
+                          }),
+                          icon: const Icon(Icons.close, size: 18),
+                        ),
+                      ],
+                    ),
+                    SizedBox(
+                      height: 42,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _suggestedQuestions.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        itemBuilder: (context, index) => ActionChip(
+                          label: Text(
+                            _suggestedQuestions[index],
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onPressed: () =>
+                              _useSuggestedQuestion(_suggestedQuestions[index]),
                         ),
                       ),
                     ),
-                    IconButton(
-                      onPressed: _sending ? null : _send,
-                      icon: const Icon(Icons.send),
-                    ),
                   ],
-                ),
-              ],
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _input,
+                          minLines: 1,
+                          maxLines: 4,
+                          decoration: const InputDecoration(
+                            hintText: 'Type a message...',
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: _sending ? null : _send,
+                        icon: const Icon(Icons.send),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -1161,6 +1019,8 @@ class WorkspaceEditorPage extends StatefulWidget {
 }
 
 class _WorkspaceEditorPageState extends State<WorkspaceEditorPage> {
+  Map<String, dynamic> _initialStory = {};
+  Map<String, dynamic> Function()? _getStoryFields;
   final _service = CultureConnectService();
   final _title = TextEditingController();
   final _content = TextEditingController();
@@ -1169,8 +1029,6 @@ class _WorkspaceEditorPageState extends State<WorkspaceEditorPage> {
   final _category = TextEditingController();
   final _significance = TextEditingController();
   final _reviewNote = TextEditingController();
-  List<String> _suggestedTags = const [];
-  bool _usingFallbackTags = false;
   String _community = '';
   String _youthName = 'Youth';
   String _elderName = 'Elder';
@@ -1183,7 +1041,6 @@ class _WorkspaceEditorPageState extends State<WorkspaceEditorPage> {
   String _imageDataUri = '';
   bool _loading = true;
   bool _busy = false;
-  bool _assistantBusy = false;
 
   bool get _youthCanEdit =>
       !widget.isElder && ['draft', 'changes_requested'].contains(_status);
@@ -1242,6 +1099,15 @@ class _WorkspaceEditorPageState extends State<WorkspaceEditorPage> {
         _elderName = receiver['name']?.toString() ?? 'Elder';
         _youthAvatar = requesterProfile['avatar']?.toString();
         _elderAvatar = receiverProfile['avatar']?.toString();
+        _initialStory = {
+          ...w,
+          'storyText': w['content'] ?? '',
+          'category': (w['category']?.toString().isNotEmpty ?? false)
+              ? w['category']
+              : 'Traditional Story',
+          'communityId': data['communityId'] ?? widget.connection.communityId,
+          'communityName': data['communityName'] ?? '',
+        };
         _title.text = w['title']?.toString() ?? '';
         _content.text = w['content']?.toString() ?? '';
         _instructions.text = w['instructions']?.toString() ?? '';
@@ -1267,6 +1133,13 @@ class _WorkspaceEditorPageState extends State<WorkspaceEditorPage> {
   }
 
   Future<void> _persistWorkspace() async {
+    final fields = _getStoryFields?.call() ?? _initialStory;
+    if (fields['_uploading'] == true)
+      throw StateError('Wait for your photos to finish uploading.');
+    _title.text = fields['title']?.toString() ?? '';
+    _content.text = fields['storyText']?.toString() ?? '';
+    _category.text = fields['category']?.toString() ?? '';
+    _language = fields['language']?.toString() ?? 'Tamil';
     await _service.saveWorkspace(
       widget.connection.id,
       workspaceItemId: widget.workspaceItemId,
@@ -1283,107 +1156,8 @@ class _WorkspaceEditorPageState extends State<WorkspaceEditorPage> {
       culturalSignificance: _significance.text,
       category: _category.text,
       imageDataUri: _imageDataUri,
+      storyFields: fields,
     );
-  }
-
-  Future<void> _pickImage() async {
-    if (!_canEdit) return;
-    try {
-      final file = await ImagePicker().pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 72,
-        maxWidth: 1280,
-        maxHeight: 1280,
-      );
-      if (file == null) return;
-      final bytes = await file.readAsBytes();
-      if (bytes.length > 2 * 1024 * 1024) {
-        if (mounted)
-          _showError(
-            Exception('Image must be under 2 MB. Choose a smaller image.'),
-          );
-        return;
-      }
-      final lower = file.name.toLowerCase();
-      final mime = lower.endsWith('.png')
-          ? 'image/png'
-          : (lower.endsWith('.webp') ? 'image/webp' : 'image/jpeg');
-      if (mounted)
-        setState(
-          () => _imageDataUri = 'data:$mime;base64,${base64Encode(bytes)}',
-        );
-    } catch (e) {
-      if (mounted) _showError(e);
-    }
-  }
-
-  Future<void> _suggestCategoryTags() async {
-    if (_assistantBusy || !_canEdit) return;
-    setState(() => _assistantBusy = true);
-    try {
-      Map<String, dynamic> result;
-      var usingFallback = false;
-      try {
-        final response = await _service.askAssistant(
-          'category-tags',
-          widget.connection.id,
-          language: _language,
-          title: _title.text,
-          description: _instructions.text,
-          content: _content.text,
-        );
-        result = Map<String, dynamic>.from(response['result'] as Map);
-      } catch (_) {
-        usingFallback = true;
-        result = CultureAssistantFallback.categoryTags(
-          contentType: _contentType,
-          title: _title.text,
-          content: _content.text,
-        );
-      }
-      final suggestedTags = (result['tags'] as List? ?? [])
-          .map((tag) => tag.toString())
-          .toList();
-      if (!mounted) return;
-      setState(() {
-        _usingFallbackTags = usingFallback;
-        final category = result['category']?.toString().trim() ?? '';
-        if (category.isNotEmpty) _category.text = category;
-        _suggestedTags = suggestedTags
-            .map((tag) => tag.trim())
-            .where((tag) => tag.isNotEmpty)
-            .toSet()
-            .toList();
-      });
-    } catch (e) {
-      if (mounted) _showError(e);
-    } finally {
-      if (mounted) setState(() => _assistantBusy = false);
-    }
-  }
-
-  void _addSuggestedTag(String suggestion) {
-    final currentTags = _tags.text
-        .split(',')
-        .map((tag) => tag.trim())
-        .where((tag) => tag.isNotEmpty)
-        .toList();
-    if (currentTags.any(
-      (tag) => tag.toLowerCase() == suggestion.toLowerCase(),
-    )) {
-      return;
-    }
-    if (currentTags.length >= 12) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('You can add up to 12 tags.')),
-      );
-      return;
-    }
-    setState(() {
-      currentTags.add(suggestion);
-      _tags.text = currentTags.join(', ');
-      _tags.selection = TextSelection.collapsed(offset: _tags.text.length);
-    });
   }
 
   Future<void> _saveDraft() async {
@@ -1403,6 +1177,11 @@ class _WorkspaceEditorPageState extends State<WorkspaceEditorPage> {
   }
 
   Future<void> _submitForReview() async {
+    final fields = _getStoryFields?.call();
+    if (fields != null) {
+      _title.text = fields['title']?.toString() ?? '';
+      _content.text = fields['storyText']?.toString() ?? '';
+    }
     if (_busy || !_youthCanEdit) return;
     if (_title.text.trim().isEmpty || _content.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1486,6 +1265,11 @@ class _WorkspaceEditorPageState extends State<WorkspaceEditorPage> {
   }
 
   Future<void> _approve() async {
+    final fields = _getStoryFields?.call();
+    if (fields != null) {
+      _title.text = fields['title']?.toString() ?? '';
+      _content.text = fields['storyText']?.toString() ?? '';
+    }
     if (_busy || !_elderCanReview) return;
     setState(() => _busy = true);
     try {
@@ -1503,6 +1287,11 @@ class _WorkspaceEditorPageState extends State<WorkspaceEditorPage> {
   }
 
   Future<void> _publish() async {
+    final fields = _getStoryFields?.call();
+    if (fields != null) {
+      _title.text = fields['title']?.toString() ?? '';
+      _content.text = fields['storyText']?.toString() ?? '';
+    }
     if (_busy || !widget.isElder || _status != 'approved') return;
     if (_title.text.trim().isEmpty || _content.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1527,9 +1316,7 @@ class _WorkspaceEditorPageState extends State<WorkspaceEditorPage> {
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Published to YATHRA'),
-          content: const Text(
-            'The contribution is now available in Explore and Home.',
-          ),
+          content: const Text('The contribution is now available in Explore.'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
@@ -1583,196 +1370,13 @@ class _WorkspaceEditorPageState extends State<WorkspaceEditorPage> {
                 ],
               ),
               const SizedBox(height: 18),
-              DropdownButtonFormField<String>(
-                value: _contentType,
-                decoration: const InputDecoration(labelText: 'Content type'),
-                items:
-                    const [
-                          'Story',
-                          'Recipe',
-                          'Tradition',
-                          'Song',
-                          'Festival',
-                          'Other',
-                        ]
-                        .map(
-                          (item) =>
-                              DropdownMenuItem(value: item, child: Text(item)),
-                        )
-                        .toList(),
-                onChanged: _canEdit
-                    ? (value) {
-                        if (value != null) setState(() => _contentType = value);
-                      }
-                    : null,
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: _language,
-                decoration: const InputDecoration(labelText: 'Language'),
-                items: const ['Tamil', 'English', 'Sinhala']
-                    .map(
-                      (item) =>
-                          DropdownMenuItem(value: item, child: Text(item)),
-                    )
-                    .toList(),
-                onChanged: _canEdit
-                    ? (value) {
-                        if (value != null) setState(() => _language = value);
-                      }
-                    : null,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _title,
-                decoration: const InputDecoration(labelText: 'Title'),
+              ShareStoryPage(
+                embedded: true,
+                collaborationId: widget.connection.id,
                 readOnly: !_canEdit,
+                storyToEdit: _initialStory,
+                onFieldsReady: (getter) => _getStoryFields = getter,
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _content,
-                minLines: 5,
-                maxLines: 12,
-                readOnly: !_canEdit,
-                decoration: const InputDecoration(
-                  labelText: 'Cultural story / content',
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _instructions,
-                minLines: 3,
-                maxLines: 8,
-                readOnly: !_canEdit,
-                decoration: const InputDecoration(
-                  labelText: 'Short description',
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _significance,
-                minLines: 2,
-                maxLines: 5,
-                readOnly: !_canEdit,
-                decoration: const InputDecoration(
-                  labelText: 'Cultural significance (elder to confirm)',
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _category,
-                readOnly: !_canEdit,
-                decoration: const InputDecoration(labelText: 'Category'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _tags,
-                readOnly: !_canEdit,
-                decoration: const InputDecoration(
-                  labelText: 'Tags',
-                  hintText: 'Jaffna, Food, Temple Festival',
-                ),
-              ),
-              if (_canEdit) ...[
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: OutlinedButton.icon(
-                    onPressed: _assistantBusy ? null : _suggestCategoryTags,
-                    icon: const Icon(Icons.auto_awesome),
-                    label: Text(
-                      _assistantBusy
-                          ? 'Suggesting...'
-                          : 'Suggest Category & Tags',
-                    ),
-                  ),
-                ),
-                if (_suggestedTags.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    _usingFallbackTags
-                        ? 'Basic Tags - tap to add'
-                        : 'Suggested Tags - tap to add',
-                  ),
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 4,
-                    children: _suggestedTags.map((tag) {
-                      final isAdded = _tags.text
-                          .split(',')
-                          .map((value) => value.trim().toLowerCase())
-                          .contains(tag.toLowerCase());
-                      return ActionChip(
-                        avatar: Icon(
-                          isAdded ? Icons.check_rounded : Icons.add_rounded,
-                          size: 16,
-                        ),
-                        label: Text(tag),
-                        onPressed: isAdded ? null : () => _addSuggestedTag(tag),
-                      );
-                    }).toList(),
-                  ),
-                ],
-              ],
-              const SizedBox(height: 12),
-              Text(
-                'Image (Optional)',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              const SizedBox(height: 8),
-              if (_imageDataUri.isNotEmpty)
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.memory(
-                    base64Decode(_imageDataUri.split(',').last),
-                    height: 190,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                  ),
-                )
-              else
-                Container(
-                  height: 120,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    border: Border.all(color: const Color(0xFFD8C8B5)),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.add_photo_alternate_outlined, size: 32),
-                      SizedBox(height: 6),
-                      Text('Add one image to your contribution'),
-                    ],
-                  ),
-                ),
-              if (_canEdit)
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Wrap(
-                    spacing: 8,
-                    children: [
-                      TextButton.icon(
-                        onPressed: _pickImage,
-                        icon: const Icon(Icons.image_outlined),
-                        label: Text(
-                          _imageDataUri.isEmpty
-                              ? 'Choose Image'
-                              : 'Change Image',
-                        ),
-                      ),
-                      if (_imageDataUri.isNotEmpty)
-                        TextButton.icon(
-                          onPressed: () => setState(() => _imageDataUri = ''),
-                          icon: const Icon(Icons.delete_outline),
-                          label: const Text('Remove'),
-                        ),
-                    ],
-                  ),
-                ),
               if (widget.isElder && _status == 'under_review') ...[
                 const SizedBox(height: 12),
                 TextField(
@@ -1845,7 +1449,7 @@ class _WorkspaceEditorPageState extends State<WorkspaceEditorPage> {
                           ),
                         if (_status == 'approved' && !widget.isElder)
                           const Text(
-                            'The elder approved this contribution. It will appear in Explore and Home after publishing.',
+                            'The elder approved this contribution. It will appear in Explore after publishing.',
                           ),
                         if (_status == 'changes_requested' && widget.isElder)
                           const Text(
@@ -1915,7 +1519,7 @@ class _WorkspaceStatusCard extends StatelessWidget {
                       : status == 'Approved'
                       ? (isElder
                             ? 'This contribution is approved and ready to publish.'
-                            : 'The elder approved this contribution. It will appear in Explore and Home after publishing.')
+                            : 'The elder approved this contribution. It will appear in Explore after publishing.')
                       : status == 'Changes Requested'
                       ? 'Review the elder note, update your content, and send it again.'
                       : status == 'Published'

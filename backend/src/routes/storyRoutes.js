@@ -2,6 +2,8 @@ const express = require('express');
 const mongoose = require('mongoose');
 const router = express.Router();
 const Story = require('../models/Story');
+const Membership = require('../models/CommunityMembership');
+const communities = require('../data/communities.json');
 const authenticate = require('../middleware/authenticate');
 
 const requireElder = (req, res, next) => {
@@ -57,6 +59,19 @@ const imageFields = (body) => {
   return { value };
 };
 
+async function destination(body, user) {
+  if (!body.communityId) return { value: { communityId: '', communityName: '', community: '' } };
+  const community = communities.find(c => c.id === body.communityId);
+  if (!community) return { error: 'Select a valid community.' };
+  if (!await Membership.exists({ user: user._id, communityId: community.id })) return { error: 'Follow this community before sharing a story in it.' };
+  return { value: { communityId: community.id, communityName: community.title, community: community.title } };
+}
+function summaryFields(body) {
+  if (body.aiSummary != null && (typeof body.aiSummary !== 'string' || body.aiSummary.length > 700)) return { error: 'Summary must be at most 700 characters.' };
+  const approved = body.summaryStatus === 'approved' && typeof body.aiSummary === 'string' && body.aiSummary.trim();
+  return { value: { aiSummary: approved ? body.aiSummary.trim() : null, summaryStatus: approved ? 'approved' : 'skipped', summaryUpdatedAt: approved ? new Date() : null } };
+}
+
 // @route   POST /api/stories
 // @desc    Publish a new cultural story
 // @access  Elder
@@ -85,6 +100,10 @@ router.post('/', authenticate, requireElder, async (req, res) => {
       return res.status(400).json({ message: normalizedTags.error });
     }
 
+    const target = await destination(req.body, req.user);
+    if (target.error) return res.status(400).json({ message: target.error });
+    const summary = summaryFields(req.body);
+    if (summary.error) return res.status(400).json({ message: summary.error });
     const newStory = new Story({
       title: title.trim(),
       category: category.trim(),
@@ -96,6 +115,8 @@ router.post('/', authenticate, requireElder, async (req, res) => {
       contributors: [req.user._id],
       isDeleted: false,
       ...images.value,
+      ...target.value,
+      ...summary.value,
     });
 
     const savedStory = await newStory.save();
@@ -116,7 +137,7 @@ router.post('/', authenticate, requireElder, async (req, res) => {
 // @route   GET /api/stories
 // @desc    Get paginated active (non-deleted) stories
 // @access  Public
-router.get('/', async (req, res) => {
+router.get('/', (req, res, next) => (req.query.following === 'true' || req.query.mine === 'true') ? authenticate(req, res, next) : next(), async (req, res) => {
   try {
     const parsePositiveInteger = (value, defaultValue) => {
       if (value === undefined) return defaultValue;
@@ -141,7 +162,17 @@ router.get('/', async (req, res) => {
     }
 
     const filter = { isDeleted: false };
-    const { search, category, tags } = req.query;
+    if (req.query.mine === 'true') filter.$and = [{ $or: [{ publishedBy: req.user._id }, { contributors: req.user._id }] }];
+    const { search, category, tags, communityId } = req.query;
+    if (communityId) {
+      if (typeof communityId !== 'string') return res.status(400).json({ message: 'Invalid community.' });
+      filter.communityId = communityId;
+    }
+    if (req.query.following === 'true') {
+      const mine = await Membership.find({ user: req.user._id }).lean();
+      const ids = mine.map(m => m.communityId);
+      filter.communityId = communityId ? { $in: ids.includes(communityId) ? [communityId] : [] } : { $in: ids };
+    }
 
     if (search !== undefined) {
       if (typeof search !== 'string' || !search.trim()) {
@@ -149,7 +180,7 @@ router.get('/', async (req, res) => {
       }
 
       const searchRegex = new RegExp(escapeRegex(search.trim()), 'i');
-      filter.$or = [{ title: searchRegex }, { storyText: searchRegex }];
+      filter.$or = [{ title: searchRegex }, { storyText: searchRegex }, { location: searchRegex }, { communityName: searchRegex }, { category: searchRegex }];
     }
 
     if (category !== undefined) {
@@ -157,7 +188,8 @@ router.get('/', async (req, res) => {
         return res.status(400).json({ message: 'Category must be a non-empty string.' });
       }
 
-      filter.category = new RegExp(`^${escapeRegex(category.trim())}$`, 'i');
+      const aliases = { Food: ['Food', 'Recipe', 'Food & Recipes', 'Traditional recipes'], History: ['History', 'Local History', 'History & Heritage'], 'Traditional Music': ['Traditional Music', 'Song', 'Music & Songs'], 'Local Dialects': ['Local Dialects', 'Language', 'Proverb'] };
+      filter.category = { $in: (aliases[category.trim()] || [category.trim()]).map(c => new RegExp(`^${escapeRegex(c)}$`, 'i')) };
     }
 
     if (tags !== undefined) {
@@ -178,7 +210,7 @@ router.get('/', async (req, res) => {
     }
 
     const [items, totalItems] = await Promise.all([
-      Story.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
+      Story.find(filter).populate('publishedBy', 'name').sort({ createdAt: -1 }).skip(skip).limit(limit),
       Story.countDocuments(filter),
     ]);
 
@@ -215,6 +247,7 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Story not found.' });
     }
 
+    await story.populate('publishedBy', 'name');
     return res.status(200).json({ story });
   } catch (error) {
     console.error('Error fetching story:', error);
@@ -240,6 +273,8 @@ router.put('/:id', authenticate, requireElder, async (req, res) => {
       return res.status(404).json({ message: 'Story not found or has been deleted.' });
     }
 
+    if (story.publishedBy?.toString() !== req.user._id.toString()) return res.status(403).json({ message: 'Only the author can edit this story.' });
+    const sourceChanged = (req.body.storyText !== undefined && req.body.storyText.trim() !== story.storyText) || (req.body.title !== undefined && req.body.title.trim() !== story.title) || (req.body.language !== undefined && req.body.language.trim() !== story.language);
     const images = imageFields(req.body);
     if (images.error) return res.status(400).json({ message: images.error });
     const { title, category, language, storyText, audioPath, tags } = req.body;
@@ -286,6 +321,18 @@ router.put('/:id', authenticate, requireElder, async (req, res) => {
     }
 
     Object.assign(story, images.value);
+    if (req.body.communityId !== undefined) {
+      const target = await destination(req.body, req.user);
+      if (target.error) return res.status(400).json({ message: target.error });
+      Object.assign(story, target.value);
+    }
+    if (req.body.summaryStatus !== undefined) {
+      const summary = summaryFields(req.body);
+      if (summary.error) return res.status(400).json({ message: summary.error });
+      Object.assign(story, summary.value);
+    } else if (sourceChanged && story.aiSummary) {
+      story.summaryStatus = 'outdated';
+    }
     const updatedStory = await story.save();
 
     return res.status(200).json({

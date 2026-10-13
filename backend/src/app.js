@@ -28,6 +28,7 @@ app.use(express.urlencoded({ extended: false }));
 // Routes
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 app.use('/api/images', require('./routes/imageRoutes'));
+app.use('/api/communities', require('./routes/communityRoutes'));
 app.use('/api/stories', storyRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/ai', aiRoutes);

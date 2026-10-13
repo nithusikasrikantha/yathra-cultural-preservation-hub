@@ -6,14 +6,21 @@ import '../../models/story.dart';
 import '../../services/story_service.dart';
 import 'elder_knowledge_discovery_page.dart';
 import 'share_story_page.dart';
+import 'elder_edit_profile_sheet.dart';
+import '../culture_connect_pages.dart';
+import '../../services/published_content_signal.dart';
 
 class ElderProfilePage extends StatefulWidget {
   const ElderProfilePage({
     super.key,
+    this.onHome,
+    this.onProfileSaved,
     this.userName = 'Kamala Devi',
     this.handle = '@kamaladevi',
   });
 
+  final VoidCallback? onHome;
+  final ValueChanged<Map<String, dynamic>>? onProfileSaved;
   final String userName;
   final String handle;
 
@@ -28,6 +35,77 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
   static const Color _cardBg = Color(0xFFFFFDF8);
   static const Color _btnBg = Color(0xFFF5EBE1);
   final AuthService _authService = AuthService();
+  Map<String, dynamic>? _profile;
+  Map<String, dynamic>? _stats;
+  String? _profileError;
+  Future<void> _loadProfile() async {
+    try {
+      final values = await Future.wait([
+        _authService.getElderProfile(),
+        _authService.getProfileStats(),
+      ]);
+      if (mounted)
+        setState(() {
+          _profile = values[0];
+          _stats = values[1];
+          _profileError = null;
+        });
+    } catch (error) {
+      if (mounted) setState(() => _profileError = error.toString());
+    }
+  }
+
+  Future<void> _editProfile() async {
+    if (_profile == null) {
+      await _loadProfile();
+    }
+    if (!mounted || _profile == null) return;
+    final updated = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: _bgColor,
+      builder: (_) => ElderEditProfileSheet(profile: _profile!),
+    );
+    if (updated != null && mounted) {
+      setState(() => _profile = updated);
+      widget.onProfileSaved?.call(updated);
+    }
+  }
+
+  Future<void> _openProjects() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => const WorkspacePage(isElder: true),
+      ),
+    );
+    if (mounted) {
+      _loadProfile();
+      _loadRecentPosts();
+    }
+  }
+
+  Future<void> _openConnections() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => const MyConnectionsPage(isElder: true),
+      ),
+    );
+    if (mounted) _loadProfile();
+  }
+
+  void _refreshPublished() {
+    _loadProfile();
+    _loadRecentPosts();
+  }
+
+  @override
+  void dispose() {
+    PublishedContentSignal.revision.removeListener(_refreshPublished);
+    super.dispose();
+  }
 
   Future<void> _logout() async {
     final confirm = await showDialog<bool>(
@@ -64,11 +142,17 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
   void initState() {
     super.initState();
     _loadRecentPosts();
+    _loadProfile();
+    PublishedContentSignal.revision.addListener(_refreshPublished);
   }
 
   Future<void> _loadRecentPosts() async {
     try {
-      final page = await _storyService.fetchStories(page: 1, limit: 2);
+      final page = await _storyService.fetchStories(
+        page: 1,
+        limit: 2,
+        mine: true,
+      );
       if (mounted) {
         setState(() {
           _recentPosts.clear();
@@ -105,6 +189,9 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
       'location': story.location,
       'timePeriod': story.timePeriod,
       'community': story.community,
+      'communityId': story.communityId,
+      'aiSummary': story.aiSummary,
+      'summaryStatus': story.summaryStatus,
     };
 
     final result = await Navigator.of(context).push<bool>(
@@ -128,7 +215,9 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: _primaryBrown, size: 24),
           onPressed: () {
-            if (Navigator.of(context).canPop()) {
+            if (widget.onHome != null) {
+              widget.onHome!();
+            } else if (Navigator.of(context).canPop()) {
               Navigator.of(context).pop();
             }
           },
@@ -165,7 +254,11 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
         actions: [
           IconButton(
             tooltip: 'Log out',
-            icon: const Icon(Icons.logout_rounded, color: _primaryBrown, size: 24),
+            icon: const Icon(
+              Icons.logout_rounded,
+              color: _primaryBrown,
+              size: 24,
+            ),
             onPressed: _logout,
           ),
           const SizedBox(width: 6),
@@ -179,6 +272,11 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
             children: [
               // Profile Header Info
               _buildProfileHeader(),
+              if (_profileError != null)
+                TextButton(
+                  onPressed: _loadProfile,
+                  child: const Text('Could not load profile. Retry'),
+                ),
 
               const SizedBox(height: 20),
 
@@ -192,6 +290,17 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
 
               const SizedBox(height: 18),
 
+              _buildCardContainer(
+                title: 'MY PROJECTS',
+                showChevron: true,
+                onHeaderTap: _openProjects,
+                child: _buildPillButton(
+                  icon: Icons.workspaces_outline,
+                  label: 'My Projects',
+                  onPressed: _openProjects,
+                ),
+              ),
+              const SizedBox(height: 18),
               // Connections
               _buildConnectionsSection(),
 
@@ -229,7 +338,7 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
           ),
           child: ClipOval(
             child: Image.network(
-              'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=250&q=80',
+              _profile?['avatar']?.toString() ?? '',
               fit: BoxFit.cover,
               errorBuilder: (_, _, _) =>
                   const Icon(Icons.person, size: 56, color: _accentBrown),
@@ -241,7 +350,7 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
 
         // Name
         Text(
-          widget.userName,
+          _profile?['name']?.toString() ?? widget.userName,
           style: const TextStyle(
             fontSize: 22,
             fontWeight: FontWeight.bold,
@@ -254,15 +363,15 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
 
         // Handle
         Text(
-          widget.handle,
+          'Elder Contributor',
           style: const TextStyle(fontSize: 14, color: Colors.black54),
         ),
 
         const SizedBox(height: 8),
 
         // Bio Quote
-        const Text(
-          '“Sharing our traditions with the next generation.”',
+        Text(
+          _profile?['bio']?.toString() ?? '',
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 14,
@@ -283,8 +392,8 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
               color: Colors.black54,
             ),
             const SizedBox(width: 4),
-            const Text(
-              'Jaffna',
+            Text(
+              _profile?['location']?.toString() ?? '',
               style: TextStyle(fontSize: 13, color: Colors.black54),
             ),
             const SizedBox(width: 16),
@@ -294,8 +403,8 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
               color: Colors.black54,
             ),
             const SizedBox(width: 4),
-            const Text(
-              'Tamil • Sinhala',
+            Text(
+              _profile?['preferredLanguage']?.toString() ?? '',
               style: TextStyle(fontSize: 13, color: Colors.black54),
             ),
           ],
@@ -307,19 +416,14 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            _buildStatItem('24', 'Contributions'),
-            Container(
-              height: 24,
-              width: 1,
-              color: Colors.grey.withValues(alpha: 0.3),
+            _buildStatItem(
+              _stats?['contributions']?.toString() ?? '—',
+              'Contributions',
             ),
-            _buildStatItem('156', 'Followers'),
-            Container(
-              height: 24,
-              width: 1,
-              color: Colors.grey.withValues(alpha: 0.3),
+            _buildStatItem(
+              _stats?['connections']?.toString() ?? '—',
+              'Connections',
             ),
-            _buildStatItem('12', 'Following'),
           ],
         ),
 
@@ -337,7 +441,7 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
                 borderRadius: BorderRadius.circular(22),
               ),
             ),
-            onPressed: () {},
+            onPressed: _editProfile,
             icon: const Icon(
               Icons.edit_outlined,
               color: _accentBrown,
@@ -624,14 +728,15 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
     return _buildCardContainer(
       title: 'CONNECTIONS',
       showChevron: true,
+      onHeaderTap: _openConnections,
       child: Column(
         children: [
-          const Row(
+          Row(
             children: [
               Icon(Icons.people_outline_rounded, color: _accentBrown, size: 22),
               SizedBox(width: 12),
               Text(
-                '12 Learners connected',
+                '${_stats?['connections'] ?? '—'} people connected',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
@@ -644,6 +749,7 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
           _buildPillButton(
             icon: Icons.people_outline_rounded,
             label: 'Manage Connections',
+            onPressed: _openConnections,
           ),
         ],
       ),

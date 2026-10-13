@@ -3,10 +3,15 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../models/community_theme.dart';
+import '../models/connection_model.dart';
 import '../models/story.dart';
+import '../models/user_model.dart';
+import '../services/culture_connect_service.dart';
 import '../services/published_content_signal.dart';
 import '../services/story_service.dart';
+import '../services/community_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/social_story_card.dart';
 import 'community_details_page.dart';
 import 'youth_story_detail_page.dart';
 
@@ -19,7 +24,9 @@ String _fallbackArt(String category) => switch (category.toLowerCase()) {
 
 /// Explore Page (Page 2 in the required flow)
 class ExplorePage extends StatefulWidget {
-  const ExplorePage({super.key});
+  const ExplorePage({super.key, this.canConnect = true});
+
+  final bool canConnect;
 
   @override
   State<ExplorePage> createState() => _ExplorePageState();
@@ -32,9 +39,15 @@ class _ExplorePageState extends State<ExplorePage> {
 
   final TextEditingController _searchController = TextEditingController();
   final StoryService _storyService = const StoryService();
-  final List<CulturalTheme> _themes = MockCulturalData.getPopularThemes();
+  final CultureConnectService _connectService = CultureConnectService();
+  List<CulturalTheme> _themes = [];
   final List<CategoryItem> _categories = MockCulturalData.getCategories();
   List<Story> _publishedStories = const [];
+  List<User> _elders = const [];
+  final Map<String, Connection> _connections = {};
+  final Set<String> _requestingElders = {};
+  bool _eldersLoading = true;
+  String? _eldersError;
   bool _storiesLoading = true;
 
   @override
@@ -42,6 +55,71 @@ class _ExplorePageState extends State<ExplorePage> {
     super.initState();
     PublishedContentSignal.revision.addListener(_reloadPublishedStories);
     _loadPublishedStories();
+    _loadElders();
+    _loadCommunities();
+  }
+
+  Future<void> _loadCommunities() async {
+    try {
+      final items = await CommunityService().list();
+      if (mounted) setState(() => _themes = items);
+    } catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Could not load communities. Pull to refresh or reopen Explore.',
+            ),
+          ),
+        );
+    }
+  }
+
+  Future<void> _loadElders() async {
+    setState(() => _eldersLoading = true);
+    try {
+      final elders = await _connectService.getElders();
+      final connections = await _connectService.getConnections();
+      if (!mounted) return;
+      setState(() {
+        _elders = elders;
+        _connections
+          ..clear()
+          ..addEntries(
+            connections.map(
+              (connection) => MapEntry(connection.receiverId, connection),
+            ),
+          );
+        _eldersLoading = false;
+        _eldersError = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _eldersLoading = false;
+        _eldersError = error.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  Future<void> _connectWithElder(User elder) async {
+    if (_requestingElders.contains(elder.id)) return;
+    setState(() => _requestingElders.add(elder.id));
+    try {
+      final connection = await _connectService.request(elder.id, '', '');
+      if (!mounted) return;
+      setState(() => _connections[elder.id] = connection);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(error.toString().replaceFirst('Exception: ', '')),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _requestingElders.remove(elder.id));
+    }
   }
 
   Future<void> _loadPublishedStories() async {
@@ -57,7 +135,10 @@ class _ExplorePageState extends State<ExplorePage> {
     }
   }
 
-  void _reloadPublishedStories() => _loadPublishedStories();
+  void _reloadPublishedStories() {
+    _loadPublishedStories();
+    _loadCommunities();
+  }
 
   @override
   void dispose() {
@@ -66,24 +147,26 @@ class _ExplorePageState extends State<ExplorePage> {
     super.dispose();
   }
 
-  void _openCommunityDetails(CulturalTheme theme) {
-    Navigator.of(context).push(
+  Future<void> _openCommunityDetails(CulturalTheme theme) async {
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => CommunityDetailsPage(theme: theme),
       ),
     );
+    _loadCommunities();
   }
 
   void _openCategory(CategoryItem category) {
     final relatedThemes = _themes
-        .where((theme) => theme.category.toLowerCase() == category.title.toLowerCase())
+        .where(
+          (theme) =>
+              theme.category.toLowerCase() == category.title.toLowerCase(),
+        )
         .toList();
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => ExploreCategoryPage(
-          category: category,
-          themes: relatedThemes,
-        ),
+        builder: (_) =>
+            ExploreCategoryPage(category: category, themes: relatedThemes),
       ),
     );
   }
@@ -92,12 +175,18 @@ class _ExplorePageState extends State<ExplorePage> {
   Widget build(BuildContext context) {
     final query = _searchController.text.trim().toLowerCase();
     final visibleThemes = _themes.where((theme) {
-      final searchable =
-          '${theme.title} ${theme.category} ${theme.description}'.toLowerCase();
+      final searchable = '${theme.title} ${theme.category} ${theme.description}'
+          .toLowerCase();
       return query.isEmpty || searchable.contains(query);
     }).toList();
     final visibleCategories = _categories.where((category) {
       final searchable = '${category.title} ${category.subtitle}'.toLowerCase();
+      return query.isEmpty || searchable.contains(query);
+    }).toList();
+    final visibleElders = _elders.where((elder) {
+      final searchable =
+          '${elder.name} ${elder.profileInfo.bio ?? ''} ${elder.profileInfo.interests.join(' ')}'
+              .toLowerCase();
       return query.isEmpty || searchable.contains(query);
     }).toList();
     return Scaffold(
@@ -253,11 +342,163 @@ class _ExplorePageState extends State<ExplorePage> {
               ),
 
               const SizedBox(height: 24),
+              _buildEldersSection(visibleElders),
+
+              const SizedBox(height: 24),
               _buildPublishedStoriesSection(),
 
               const SizedBox(height: 24),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEldersSection(List<User> elders) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text(
+        'Connect with Elders',
+        style: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+          color: _primaryBrown,
+        ),
+      ),
+      const SizedBox(height: 4),
+      const Text(
+        'Meet the people preserving our traditions.',
+        style: TextStyle(fontSize: 12.5, color: Color(0xFF806D61)),
+      ),
+      const SizedBox(height: 12),
+      if (_eldersLoading)
+        const Center(
+          child: Padding(
+            padding: EdgeInsets.all(18),
+            child: CircularProgressIndicator(),
+          ),
+        )
+      else if (_eldersError != null)
+        Card(
+          color: Colors.white,
+          child: ListTile(
+            title: const Text('Could not load elders.'),
+            subtitle: Text(
+              _eldersError!,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: IconButton(
+              onPressed: _loadElders,
+              icon: const Icon(Icons.refresh_rounded),
+            ),
+          ),
+        )
+      else if (elders.isEmpty)
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: const Text('Elder profiles will appear here.'),
+        )
+      else
+        ...elders.map(_buildElderCard),
+    ],
+  );
+
+  Widget _buildElderCard(User elder) {
+    final connection = _connections[elder.id];
+    final isPending = connection?.status == 'pending';
+    final isConnected = connection?.status == 'accepted';
+    final subtitle = elder.profileInfo.bio?.trim().isNotEmpty == true
+        ? elder.profileInfo.bio!.trim()
+        : elder.profileInfo.interests.isNotEmpty
+        ? elder.profileInfo.interests.join(' • ')
+        : elder.profileInfo.location?.trim().isNotEmpty == true
+        ? elder.profileInfo.location!.trim()
+        : 'Community elder';
+
+    return Card(
+      color: Colors.white,
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: const Color(0xFFEADCC9),
+              backgroundImage: elder.profileInfo.avatar?.isNotEmpty == true
+                  ? NetworkImage(elder.profileInfo.avatar!)
+                  : null,
+              child: elder.profileInfo.avatar?.isNotEmpty == true
+                  ? null
+                  : const Icon(Icons.person_rounded, color: _primaryBrown),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    elder.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: _primaryBrown,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF806D61),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (widget.canConnect) ...[
+              const SizedBox(width: 8),
+              SizedBox(
+                height: 36,
+                child: OutlinedButton(
+                  onPressed:
+                      isPending ||
+                          isConnected ||
+                          _requestingElders.contains(elder.id)
+                      ? null
+                      : () => _connectWithElder(elder),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 11),
+                    foregroundColor: _primaryBrown,
+                    side: const BorderSide(color: Color(0xFFB98D69)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: Text(
+                    _requestingElders.contains(elder.id)
+                        ? 'Sending'
+                        : isConnected
+                        ? 'Connected'
+                        : isPending
+                        ? 'Pending'
+                        : 'Connect',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -286,7 +527,9 @@ class _ExplorePageState extends State<ExplorePage> {
               color: Colors.white,
               borderRadius: BorderRadius.circular(14),
             ),
-            child: const Text('Elder-reviewed community stories will appear here.'),
+            child: const Text(
+              'Elder-reviewed community stories will appear here.',
+            ),
           )
         else
           ..._publishedStories.map(
@@ -302,7 +545,10 @@ class _ExplorePageState extends State<ExplorePage> {
                           color: const Color(0xFFEADCC9),
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: const Icon(Icons.auto_stories_rounded, color: _accentBrown),
+                        child: const Icon(
+                          Icons.auto_stories_rounded,
+                          color: _accentBrown,
+                        ),
                       )
                     : ClipRRect(
                         borderRadius: BorderRadius.circular(12),
@@ -313,7 +559,11 @@ class _ExplorePageState extends State<ExplorePage> {
                           fit: BoxFit.cover,
                         ),
                       ),
-                title: Text(story.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                title: Text(
+                  story.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
                 subtitle: Text('${story.category} • ${story.language}'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.of(context).push(
@@ -518,7 +768,6 @@ class _ThemeCard extends StatelessWidget {
       ),
     );
   }
-
 }
 
 /// Category Card in Grid
@@ -546,58 +795,58 @@ class _CategoryCard extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(14),
       child: Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.9),
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: ClipRRect(
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(14),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.9),
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(14),
+                ),
+                child: image,
               ),
-              child: image,
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  category.title,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: _primaryBrown,
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    category.title,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: _primaryBrown,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  category.subtitle,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: _primaryBrown.withValues(alpha: 0.6),
+                  const SizedBox(height: 2),
+                  Text(
+                    category.subtitle,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: _primaryBrown.withValues(alpha: 0.6),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
-      ),
+          ],
+        ),
       ),
     );
   }
@@ -642,10 +891,8 @@ class ExploreCategoryPage extends StatelessWidget {
             child: Image.network(
               category.imageUrl,
               fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => Image.asset(
-                _fallbackArt(category.title),
-                fit: BoxFit.cover,
-              ),
+              errorBuilder: (_, _, _) =>
+                  Image.asset(_fallbackArt(category.title), fit: BoxFit.cover),
             ),
           ),
         ),
@@ -666,6 +913,48 @@ class ExploreCategoryPage extends StatelessWidget {
             fontSize: 15,
             height: 1.5,
           ),
+        ),
+        const SizedBox(height: 24),
+        FutureBuilder<StoryPage>(
+          future: const StoryService().fetchStories(
+            page: 1,
+            limit: 50,
+            category: category.title,
+          ),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done)
+              return const LinearProgressIndicator();
+            if (snapshot.hasError)
+              return const Text(
+                'Could not load category stories. Reopen this category to retry.',
+              );
+            final stories = snapshot.data?.items ?? <Story>[];
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Stories',
+                  style: TextStyle(fontFamily: 'Serif', fontSize: 24),
+                ),
+                if (stories.isEmpty)
+                  const Text('No published stories in this category yet.'),
+                for (final story in stories)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: SocialStoryCard(
+                      story: story,
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              YouthStoryDetailPage(storyId: story.id),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
         ),
         const SizedBox(height: 24),
         const Text(
@@ -720,7 +1009,7 @@ class ExploreCategoryPage extends StatelessWidget {
                             ),
                             const SizedBox(height: 5),
                             Text(
-                              '${theme.membersCount}  •  ${theme.activeEldersCount}',
+                              theme.membersCount,
                               style: const TextStyle(
                                 color: Color(0xFF806A58),
                                 fontSize: 12,

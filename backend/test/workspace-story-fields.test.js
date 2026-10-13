@@ -1,0 +1,27 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const express = require('express');
+const stub = (path, exports) => { const id = require.resolve(path); require.cache[id] = { id, filename: id, loaded: true, exports }; };
+const youth = '111111111111111111111111', elder = '222222222222222222222222', id = '333333333333333333333333';
+const connection = { _id: id, status: 'accepted', requester: { _id: youth }, receiver: { _id: elder }, communityId: 'jaffna_cuisine', communityName: 'Jaffna Cuisine', workspace: { title: '', content: '', category: '', language: 'Tamil', status: 'draft', instructions: 'Legacy description', culturalSignificance: '', tags: [] }, save: async () => {} };
+stub('../src/middleware/authenticate', (req, res, next) => { req.user = { _id: req.get('x-user') || youth, role: req.get('x-role') || 'youth' }; next(); });
+stub('../src/models/Connection', { findById: () => { const query = { populate: () => query, select: () => query, then: resolve => Promise.resolve(connection).then(resolve) }; return query; } });
+let published;
+stub('../src/models/Story', { create: async fields => { published = { ...fields, _id: '444444444444444444444444' }; return published; } });
+test('collaborative draft preserves Add Story fields through review and publication', async t => {
+ const app = express(); app.use(express.json()); app.use('/connections', require('../src/routes/connectionRoutes'));
+ const server = app.listen(0); t.after(() => server.close());
+ const call = async (action, body, reviewing = false, method = 'POST') => { const r = await fetch(`http://127.0.0.1:${server.address().port}/connections/${id}/${action}`, { method, headers: { 'content-type': 'application/json', 'x-user': reviewing ? elder : youth, 'x-role': reviewing ? 'elder' : 'youth' }, body: JSON.stringify(body) }); return { status: r.status, data: await r.json() }; };
+ const fields = { title: 'Family recipe', content: 'Original family story.', category: 'Recipe', language: 'Tamil', bannerImage: '/uploads/banner.jpg', additionalImages: ['/uploads/detail.jpg'], location: 'Jaffna', timePeriod: 'My childhood', audioPath: '/recordings/story.m4a', aiSummary: 'A family recipe remembered.', summaryStatus: 'approved' };
+ assert.equal((await call('workspace', fields, false, 'PUT')).status, 200);
+ for (const key of Object.keys(fields)) assert.deepEqual(connection.workspace[key], fields[key]);
+ assert.equal((await call('workspace', { additionalImages: Array(9).fill('/uploads/x.jpg') }, false, 'PUT')).status, 400);
+ assert.equal((await call('submit', {})).status, 200);
+ assert.equal((await call('workspace', { title: 'Blocked edit' }, false, 'PUT')).status, 403);
+ assert.equal((await call('approve', {}, true)).status, 200);
+ assert.equal((await call('publish', {})).status, 403);
+ assert.equal((await call('publish', {}, true)).status, 201);
+ assert.equal(published.storyText, fields.content);
+ for (const key of ['bannerImage','additionalImages','location','timePeriod','audioPath','aiSummary','summaryStatus']) assert.deepEqual(published[key], fields[key]);
+ assert.equal(published.communityId, 'jaffna_cuisine'); assert.equal(connection.workspace.status, 'published');
+});

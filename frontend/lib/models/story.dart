@@ -14,6 +14,10 @@ class Story {
     this.location,
     this.timePeriod,
     this.community,
+    this.communityId,
+    this.aiSummary,
+    this.summaryStatus,
+    this.authorName,
   });
 
   final String id;
@@ -30,6 +34,19 @@ class Story {
   final String? location;
   final String? timePeriod;
   final String? community;
+  final String? communityId;
+  final String? aiSummary;
+  final String? summaryStatus;
+  final String? authorName;
+  String get preview =>
+      summaryStatus == 'approved' && aiSummary?.isNotEmpty == true
+      ? aiSummary!
+      : storyText;
+  int get readingMinutes =>
+      (storyText.trim().split(RegExp(r'\s+')).length / 180).ceil().clamp(
+        1,
+        999,
+      );
 
   factory Story.fromJson(Map<String, dynamic> json) {
     return Story(
@@ -47,7 +64,15 @@ class Story {
       additionalImages: _stringList(json['additionalImages']),
       location: _optionalString(json['location']),
       timePeriod: _optionalString(json['timePeriod']),
-      community: _optionalString(json['community']),
+      community:
+          _optionalString(json['communityName']) ??
+          _optionalString(json['community']),
+      communityId: _optionalString(json['communityId']),
+      aiSummary: _optionalString(json['aiSummary']),
+      summaryStatus: _optionalString(json['summaryStatus']),
+      authorName: json['publishedBy'] is Map
+          ? _optionalString(json['publishedBy']['name'])
+          : null,
       createdAt: DateTime.tryParse(_optionalString(json['createdAt']) ?? ''),
     );
   }

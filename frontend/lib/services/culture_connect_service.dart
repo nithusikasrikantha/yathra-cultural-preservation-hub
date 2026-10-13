@@ -178,6 +178,7 @@ class CultureConnectService {
     String culturalSignificance = '',
     String category = '',
     String imageDataUri = '',
+    Map<String, dynamic> storyFields = const {},
   }) async => Map<String, dynamic>.from(
     await _api.put(
       '${ApiEndpoints.connections}/$id/workspace',
@@ -193,6 +194,16 @@ class CultureConnectService {
         'culturalSignificance': culturalSignificance,
         'category': category,
         'imageDataUri': imageDataUri,
+        for (final key in [
+          'bannerImage',
+          'additionalImages',
+          'location',
+          'timePeriod',
+          'audioPath',
+          'aiSummary',
+          'summaryStatus',
+        ])
+          if (storyFields.containsKey(key)) key: storyFields[key],
       },
     ),
   );

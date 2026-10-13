@@ -1,15 +1,12 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
+import '../../widgets/home_header.dart';
 
 import 'share_story_page.dart';
 import 'story_details_page.dart';
 import '../../widgets/social_story_card.dart';
-import '../culture_connect_pages.dart';
 import '../../models/story.dart';
-import '../../services/published_content_signal.dart';
 import '../../services/story_service.dart';
-import '../youth_story_detail_page.dart';
+import '../../services/published_content_signal.dart';
 
 class ElderHomePage extends StatefulWidget {
   const ElderHomePage({super.key, this.userName = 'Kamala', this.onProfile});
@@ -29,6 +26,7 @@ class _ElderHomePageState extends State<ElderHomePage> {
 
   final StoryService _storyService = const StoryService();
 
+  String _search = "";
   bool _isLoadingStories = true;
   int _selectedTab = 0; // 0: For You, 1: Following
   List<Story> _publishedStories = const [];
@@ -48,12 +46,17 @@ class _ElderHomePageState extends State<ElderHomePage> {
 
   Future<void> _loadPublishedStories() async {
     try {
-      final page = await _storyService.fetchStories(page: 1, limit: 20);
-      if (mounted)
+      final page = await _storyService.fetchStories(
+        page: 1,
+        limit: 20,
+        following: _selectedTab == 1,
+      );
+      if (mounted) {
         setState(() {
           _publishedStories = page.items;
           _isLoadingStories = false;
         });
+      }
     } catch (_) {
       if (mounted) setState(() => _isLoadingStories = false);
     }
@@ -69,97 +72,7 @@ class _ElderHomePageState extends State<ElderHomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _bgColor,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: PopupMenuButton<String>(
-          icon: const Icon(
-            Icons.more_vert_rounded,
-            color: _primaryBrown,
-            size: 28,
-          ),
-          color: const Color(0xFFFFFBF4),
-          elevation: 8,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          onSelected: (value) {
-            if (value == 'projects') {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const WorkspacePage(isElder: true),
-                ),
-              );
-            }
-          },
-          itemBuilder: (_) => const [
-            PopupMenuItem(
-              value: 'projects',
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.folder_outlined, size: 20),
-                  SizedBox(width: 10),
-                  Text('My Projects'),
-                ],
-              ),
-            ),
-          ],
-        ),
-        centerTitle: true,
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: _accentBrown.withValues(alpha: 0.12),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.local_florist,
-                color: _accentBrown,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 8),
-            const Text(
-              'YATHRA',
-              style: TextStyle(
-                fontFamily: 'Serif',
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 2,
-                color: _primaryBrown,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            tooltip: 'My Connections',
-            icon: const Icon(
-              Icons.people_alt_outlined,
-              color: _primaryBrown,
-              size: 26,
-            ),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const MyConnectionsPage(isElder: true),
-              ),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(
-              Icons.account_circle_outlined,
-              color: _primaryBrown,
-              size: 28,
-            ),
-            onPressed: widget.onProfile,
-          ),
-          const SizedBox(width: 6),
-        ],
-      ),
+      appBar: HomeTopBar(isElder: true, onProfile: widget.onProfile),
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: _loadPublishedStories,
@@ -174,11 +87,6 @@ class _ElderHomePageState extends State<ElderHomePage> {
               children: [
                 // Greeting Header Banner
                 _buildGreetingBanner(),
-
-                if (_publishedStories.isNotEmpty) ...[
-                  const SizedBox(height: 18),
-                  _buildRecentlyPublished(),
-                ],
 
                 const SizedBox(height: 20),
 
@@ -197,7 +105,11 @@ class _ElderHomePageState extends State<ElderHomePage> {
 
                 // Real Stories Published from Backend
                 if (_publishedStories.isNotEmpty) ...[
-                  for (final story in _publishedStories) ...[
+                  for (final story in _publishedStories.where(
+                    (s) => '${s.title} ${s.storyText} ${s.location ?? ''}'
+                        .toLowerCase()
+                        .contains(_search),
+                  )) ...[
                     _buildRealStoryCard(story),
                     const SizedBox(height: 20),
                   ],
@@ -258,126 +170,18 @@ class _ElderHomePageState extends State<ElderHomePage> {
     );
   }
 
-  Widget _buildRecentlyPublished() => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      const Text(
-        'Recently Published',
-        style: TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.bold,
-          color: _primaryBrown,
-        ),
-      ),
-      const SizedBox(height: 10),
-      ..._publishedStories.map(
-        (story) => Card(
-          color: _cardBg,
-          child: ListTile(
-            leading: story.imageDataUri == null
-                ? const CircleAvatar(
-                    backgroundColor: Color(0xFFEADCC9),
-                    child: Icon(
-                      Icons.auto_stories_rounded,
-                      color: _accentBrown,
-                    ),
-                  )
-                : ClipOval(
-                    child: Image.memory(
-                      base64Decode(story.imageDataUri!.split(',').last),
-                      width: 42,
-                      height: 42,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-            title: Text(
-              story.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            subtitle: Text('${story.category} • ${story.language}'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => YouthStoryDetailPage(storyId: story.id),
-              ),
-            ),
-          ),
-        ),
-      ),
-    ],
+  Widget _buildGreetingBanner() => DiscoveryHeading(
+    onSearch: (value) => setState(() => _search = value.trim().toLowerCase()),
   );
-
-  Widget _buildGreetingBanner() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: _cardBg,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.grey.withValues(alpha: 0.15)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Good morning, ${widget.userName} 👋',
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: _primaryBrown,
-                    fontFamily: 'Serif',
-                  ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Your stories keep our heritage alive.',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.black54,
-                    height: 1.3,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(
-              color: _accentBrown.withValues(alpha: 0.12),
-              shape: BoxShape.circle,
-            ),
-            child: ClipOval(
-              child: Image.network(
-                'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=200&q=80',
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) =>
-                    const Icon(Icons.person, size: 40, color: _accentBrown),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildSubTabs() {
     return Row(
       children: [
         GestureDetector(
-          onTap: () => setState(() => _selectedTab = 0),
+          onTap: () {
+            setState(() => _selectedTab = 0);
+            _loadPublishedStories();
+          },
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -406,7 +210,10 @@ class _ElderHomePageState extends State<ElderHomePage> {
         ),
         const SizedBox(width: 28),
         GestureDetector(
-          onTap: () => setState(() => _selectedTab = 1),
+          onTap: () {
+            setState(() => _selectedTab = 1);
+            _loadPublishedStories();
+          },
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -465,6 +272,7 @@ class _ElderHomePageState extends State<ElderHomePage> {
     required int likes,
     required int comments,
   }) {
+    if (_selectedTab == 1) return const SizedBox.shrink();
     final storyData = {
       'title': storyTitle,
       'category': timeMeta.split('•').last.trim(),
@@ -540,18 +348,6 @@ class _ElderHomePageState extends State<ElderHomePage> {
 
             const SizedBox(height: 12),
 
-            // Story Text Content
-            Text(
-              storyText,
-              style: const TextStyle(
-                fontSize: 14.5,
-                color: Colors.black87,
-                height: 1.4,
-              ),
-            ),
-
-            const SizedBox(height: 14),
-
             // Story Image with Overlaid "🔊 Listen" Button
             ClipRRect(
               borderRadius: BorderRadius.circular(14),
@@ -611,6 +407,60 @@ class _ElderHomePageState extends State<ElderHomePage> {
 
             const SizedBox(height: 14),
 
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEADCC9),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                storyData['category'] as String,
+                style: const TextStyle(color: _primaryBrown, fontSize: 11),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              storyTitle,
+              style: const TextStyle(
+                fontFamily: 'Serif',
+                fontSize: 21,
+                fontWeight: FontWeight.bold,
+                color: _primaryBrown,
+              ),
+            ),
+            const SizedBox(height: 8),
+            // Story Text Content
+            Text(
+              storyText,
+              style: const TextStyle(
+                fontSize: 14.5,
+                color: Colors.black87,
+                height: 1.4,
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            Wrap(
+              spacing: 12,
+              runSpacing: 6,
+              children: [
+                const Text(
+                  'Tamil',
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+                if (location != null)
+                  Text(
+                    location,
+                    style: const TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
+                Text(
+                  '${(storyText.split(RegExp(r"\s+")).length / 180).ceil().clamp(1, 999)} min read',
+                  style: const TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+              ],
+            ),
+            const Divider(),
             // Social Footer Bar (Likes, Comments, Share)
             Row(
               children: [

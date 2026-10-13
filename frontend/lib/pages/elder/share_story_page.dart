@@ -13,13 +13,33 @@ import 'package:path_provider/path_provider.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 import '../../config/api_config.dart';
+import '../../models/community_theme.dart';
+import '../../services/community_service.dart';
+import '../../services/auth_service.dart';
+import '../../services/api_service.dart';
+import '../../services/published_content_signal.dart';
 
 enum RecordingState { notRecorded, recording, recorded, playing }
 
 class ShareStoryPage extends StatefulWidget {
   final Map<String, dynamic>? storyToEdit;
 
-  const ShareStoryPage({super.key, this.storyToEdit});
+  final String? collaborationId;
+  final bool embedded;
+  final bool readOnly;
+  final ValueChanged<Map<String, dynamic> Function()>? onFieldsReady;
+  final String? communityId;
+  final String? communityName;
+  const ShareStoryPage({
+    super.key,
+    this.storyToEdit,
+    this.collaborationId,
+    this.embedded = false,
+    this.readOnly = false,
+    this.onFieldsReady,
+    this.communityId,
+    this.communityName,
+  });
 
   @override
   State<ShareStoryPage> createState() => _ShareStoryPageState();
@@ -42,11 +62,18 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     'Local History',
     'Language',
     'Other',
+    'Food',
+    'History',
+    'Performing Arts',
+    'Traditional Music',
+    'Local Dialects',
+    'Ayurveda & Healing',
   ];
 
   final List<String> _languages = ['Tamil', 'Sinhala', 'English'];
 
   String _selectedCategory = 'Traditional Story';
+  final _categoryController = TextEditingController(text: 'Traditional Story');
   String _selectedLanguage = 'Tamil';
 
   // Step 2: Optional Context Controllers
@@ -68,9 +95,17 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
   String _selectedTimePeriod = 'My childhood';
 
   // Step 3: AI Assistance State
-  bool _aiSummaryAccepted = true;
-  final String _aiSummary =
-      'A warm reflection on village heritage and cultural unity.';
+  bool _aiSummaryAccepted = false;
+  final _summaryController = TextEditingController();
+  String get _aiSummary => _summaryController.text.trim();
+  bool _summaryBusy = false;
+  String? _summarySource;
+  List<CulturalTheme> _communities = [];
+  String? _communityId;
+  String? _communityError;
+  bool _communitiesLoading = true;
+  String get _source =>
+      '${_titleController.text}\n${_selectedLanguage}\n${_storyController.text}';
 
   // Step 4: Visibility
   String _visibility = 'Public'; // Public, YATHRA Community, Private
@@ -105,6 +140,9 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
   @override
   void initState() {
     super.initState();
+    _communityId = widget.communityId;
+    _communityController.text = widget.communityName ?? "";
+    _loadCommunities();
     try {
       _safeInitPlugins();
     } catch (e) {
@@ -115,6 +153,18 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     } catch (e) {
       debugPrint('Edit data error: $e');
     }
+    _categoryController.addListener(_categoryEdited);
+    _titleController.addListener(_sourceEdited);
+    _storyController.addListener(_sourceEdited);
+  }
+
+  void _categoryEdited() {
+    setState(() => _selectedCategory = _categoryController.text.trim());
+  }
+
+  void _sourceEdited() {
+    if (_aiSummaryAccepted && _summarySource != _source)
+      setState(() => _aiSummaryAccepted = false);
   }
 
   void _safeInitPlugins() {
@@ -157,26 +207,31 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
   }
 
   void _populateEditData() {
-    if (_isEditing) {
+    if (widget.storyToEdit != null) {
       final story = widget.storyToEdit!;
       _bannerImage = story['bannerImage'] ?? story['imageUrl'];
       _additionalImages.addAll(
         List<String>.from(story['additionalImages'] ?? []),
       );
       _locationController.text = story['location'] ?? '';
-      _communityController.text = story['community'] ?? '';
+      _communityId = story['communityId'];
+      _communityController.text =
+          story['communityName'] ?? story['community'] ?? '';
+      _summaryController.text = story['aiSummary'] ?? '';
+      _aiSummaryAccepted = story['summaryStatus'] == 'approved';
       if (_timePeriods.contains(story['timePeriod'])) {
         _selectedTimePeriod = story['timePeriod'];
       }
       _titleController.text = story['title'] ?? '';
       _storyController.text = story['storyText'] ?? '';
-      if (story['category'] != null &&
-          _categories.contains(story['category'])) {
+      if (story['category'] is String) {
         _selectedCategory = story['category'];
+        _categoryController.text = _selectedCategory;
       }
       if (story['language'] != null && _languages.contains(story['language'])) {
         _selectedLanguage = story['language'];
       }
+      _summarySource = _source;
       if (story['audioPath'] != null &&
           story['audioPath'].toString().isNotEmpty) {
         _recordedFilePath = story['audioPath'];
@@ -198,6 +253,8 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     try {
       _audioPlayer?.dispose();
     } catch (_) {}
+    _categoryController.dispose();
+    _summaryController.dispose();
     _titleController.dispose();
     _storyController.dispose();
     _locationController.dispose();
@@ -205,6 +262,139 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     _peopleController.dispose();
 
     super.dispose();
+  }
+
+  Future<void> _loadCommunities() async {
+    try {
+      final items = await CommunityService().list();
+      if (mounted)
+        setState(() {
+          _communities = items;
+          _communitiesLoading = false;
+          _communityError = null;
+        });
+    } catch (_) {
+      if (mounted)
+        setState(() {
+          _communitiesLoading = false;
+          _communityError = 'Could not load communities. Retry';
+        });
+    }
+  }
+
+  Future<void> _chooseCommunity() async {
+    final result = await showModalBottomSheet<CulturalTheme>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        var query = '';
+        return StatefulBuilder(
+          builder: (context, update) => SafeArea(
+            child: SizedBox(
+              height: MediaQuery.sizeOf(context).height * .7,
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    const Text(
+                      'Post to community',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    TextField(
+                      decoration: const InputDecoration(
+                        hintText: 'Search communities',
+                        prefixIcon: Icon(Icons.search),
+                      ),
+                      onChanged: (text) =>
+                          update(() => query = text.toLowerCase()),
+                    ),
+                    ListTile(
+                      title: const Text('General feed'),
+                      onTap: () {
+                        setState(() {
+                          _communityId = null;
+                          _communityController.clear();
+                        });
+                        Navigator.pop(sheetContext);
+                      },
+                    ),
+                    Expanded(
+                      child: ListView(
+                        children: _communities
+                            .where((c) => c.title.toLowerCase().contains(query))
+                            .map(
+                              (c) => ListTile(
+                                title: Text(c.title),
+                                subtitle: Text(
+                                  c.isFollowing
+                                      ? 'My community'
+                                      : 'Follow this community to post here',
+                                ),
+                                enabled: c.isFollowing,
+                                onTap: () => Navigator.pop(sheetContext, c),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    if (result != null && mounted)
+      setState(() {
+        _communityId = result.id;
+        _communityController.text = result.title;
+      });
+  }
+
+  Future<void> _generateSummary() async {
+    if (_storyController.text.trim().isEmpty) {
+      _showSnackBar('Write your story first.');
+      return;
+    }
+    final source = _source;
+    setState(() {
+      _summaryBusy = true;
+      _aiSummaryAccepted = false;
+    });
+    try {
+      final result = await ApiService(baseUrl: _baseUrl).post(
+        '/api/ai/story-summary',
+        headers: await AuthService.authenticatedHeaders(),
+        body: {
+          if (widget.collaborationId != null)
+            'connectionId': widget.collaborationId,
+          if (widget.embedded) '_uploading': _isUploadingImages,
+          'title': _titleController.text.trim(),
+          'storyText': _storyController.text.trim(),
+          'language': _selectedLanguage,
+        },
+        timeout: const Duration(seconds: 40),
+      );
+      if (!mounted) return;
+      if (_source != source) {
+        _showSnackBar('Story changed. Generate a new summary.');
+        return;
+      }
+      setState(() {
+        _summaryController.text = result['summary'];
+        _summarySource = source;
+      });
+    } catch (_) {
+      _showSnackBar(
+        'AI summary is unavailable. Retry or skip and publish your story.',
+      );
+    } finally {
+      if (mounted) setState(() => _summaryBusy = false);
+    }
   }
 
   void _showSnackBar(String message) {
@@ -456,6 +646,33 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     if (mounted) setState(() => _isSpeaking = false);
   }
 
+  Map<String, dynamic> _storyFields() {
+    return {
+      'title': _titleController.text.trim(),
+      'category': _selectedCategory,
+      'language': _selectedLanguage,
+      'storyText': _storyController.text.trim(),
+      'audioPath': _recordedFilePath,
+      'bannerImage': _bannerImage,
+      'additionalImages': _additionalImages,
+      'location': _locationController.text.trim(),
+      'timePeriod': _selectedTimePeriod,
+      'communityId': _communityId ?? '',
+      'visibility': _visibility,
+      'aiSummary':
+          _aiSummaryAccepted &&
+              (_summarySource == null || _summarySource == _source)
+          ? _aiSummary
+          : null,
+      'summaryStatus':
+          _aiSummaryAccepted &&
+              (_summarySource == null || _summarySource == _source) &&
+              _aiSummary.isNotEmpty
+          ? 'approved'
+          : 'skipped',
+    };
+  }
+
   // Publishing Story
   Future<void> _publishOrUpdateStory() async {
     final String title = _titleController.text.trim();
@@ -470,6 +687,10 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
       return;
     }
 
+    if (_selectedCategory.trim().isEmpty) {
+      _showSnackBar('Please enter a category.');
+      return;
+    }
     if (_isUploadingImages) {
       _showSnackBar('Please wait for your photos to finish uploading.');
       return;
@@ -478,20 +699,7 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     setState(() => _isPublishing = true);
 
     try {
-      final Map<String, dynamic> body = {
-        'title': title,
-        'category': _selectedCategory,
-        'language': _selectedLanguage,
-        'storyText': storyText,
-        'audioPath': _recordedFilePath,
-        'bannerImage': _bannerImage,
-        'additionalImages': _additionalImages,
-        'location': _locationController.text.trim(),
-        'timePeriod': _selectedTimePeriod,
-        'community': _communityController.text.trim(),
-        'visibility': _visibility,
-        'aiSummary': _aiSummaryAccepted ? _aiSummary : null,
-      };
+      final body = _storyFields();
 
       http.Response response;
 
@@ -500,7 +708,7 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
         response = await http
             .put(
               url,
-              headers: {'Content-Type': 'application/json'},
+              headers: await AuthService.authenticatedHeaders(),
               body: jsonEncode(body),
             )
             .timeout(const Duration(seconds: 10));
@@ -509,13 +717,14 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
         response = await http
             .post(
               url,
-              headers: {'Content-Type': 'application/json'},
+              headers: await AuthService.authenticatedHeaders(),
               body: jsonEncode(body),
             )
             .timeout(const Duration(seconds: 10));
       }
 
       if (response.statusCode == 200 || response.statusCode == 201) {
+        PublishedContentSignal.notify();
         _showSnackBar(
           _isEditing ? 'Story updated!' : 'Story published successfully!',
         );
@@ -525,7 +734,10 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
           }
         });
       } else {
-        _showSnackBar('Failed to save story. Server returned error.');
+        final data = jsonDecode(response.body);
+        _showSnackBar(
+          data['message']?.toString() ?? 'Could not save story. Please retry.',
+        );
       }
     } catch (e) {
       _showSnackBar('Failed to save story. Please try again.');
@@ -536,6 +748,27 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
 
   @override
   Widget build(BuildContext context) {
+    widget.onFieldsReady?.call(_storyFields);
+    if (widget.embedded) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildStepProgressHeader(),
+          const SizedBox(height: 20),
+          AbsorbPointer(
+            absorbing: widget.readOnly,
+            child: Column(
+              children: [
+                if (_currentStep == 0) _buildStep1MustDetails(),
+                if (_currentStep == 1) _buildStep2OptionalContext(),
+                if (_currentStep == 2) _buildStep3AiAssistance(),
+                if (_currentStep == 3) _buildStep4ReviewAndPublish(),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
     return Scaffold(
       backgroundColor: _bgColor,
       appBar: AppBar(
@@ -672,12 +905,33 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
 
         _buildSectionLabel('Category *'),
         const SizedBox(height: 8),
-        _buildDropdownContainer(
-          value: _selectedCategory,
-          items: _categories,
-          onChanged: (val) {
-            if (val != null) setState(() => _selectedCategory = val);
+        DropdownMenu<String>(
+          controller: _categoryController,
+          expandedInsets: EdgeInsets.zero,
+          menuHeight: 220,
+          enableFilter: true,
+          enableSearch: true,
+          requestFocusOnTap: true,
+          hintText: 'Type a category or choose a suggestion',
+          menuStyle: const MenuStyle(
+            backgroundColor: WidgetStatePropertyAll(Color(0xFFFFFDF8)),
+          ),
+          dropdownMenuEntries: _categories
+              .map(
+                (category) =>
+                    DropdownMenuEntry(value: category, label: category),
+              )
+              .toList(),
+          onSelected: (value) {
+            if (value != null) setState(() => _selectedCategory = value);
           },
+        ),
+        const Padding(
+          padding: EdgeInsets.only(top: 6),
+          child: Text(
+            'Choose a suggestion or enter your own category.',
+            style: TextStyle(fontSize: 12, color: Colors.black54),
+          ),
         ),
         const SizedBox(height: 20),
 
@@ -895,11 +1149,25 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
 
         _buildSectionLabel('Community / Tradition'),
         const SizedBox(height: 8),
-        TextField(
-          controller: _communityController,
-          style: const TextStyle(fontSize: 17, color: _darkBrown),
-          decoration: _buildInputDecoration('e.g. Northern Tamil Heritage'),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text(
+            _communityController.text.isEmpty
+                ? 'General feed'
+                : _communityController.text,
+          ),
+          subtitle: const Text('Select a community you follow'),
+          trailing: const Icon(Icons.search),
+          onTap: widget.embedded || _communitiesLoading
+              ? null
+              : _chooseCommunity,
         ),
+        if (_communitiesLoading) const LinearProgressIndicator(),
+        if (_communityError != null)
+          TextButton(
+            onPressed: _loadCommunities,
+            child: Text(_communityError!),
+          ),
         const SizedBox(height: 20),
 
         _buildSectionLabel('Banner Image (Optional)'),
@@ -1010,129 +1278,79 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
   }
 
   // STEP 3: YATHRA AI ASSISTANCE
-  Widget _buildStep3AiAssistance() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            const Icon(Icons.auto_awesome, color: Color(0xFF4A5D23), size: 24),
-            const SizedBox(width: 8),
-            const Text(
-              'YATHRA AI Assistance',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: _darkBrown,
-                fontFamily: 'Serif',
-              ),
-            ),
-          ],
+  Widget _buildStep3AiAssistance() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text(
+        'YATHRA AI Summary',
+        style: TextStyle(
+          fontSize: 24,
+          fontFamily: 'Serif',
+          fontWeight: FontWeight.bold,
+          color: _darkBrown,
         ),
-        const SizedBox(height: 6),
+      ),
+      const SizedBox(height: 10),
+      const Text(
+        'Create an optional short preview for readers. Your original story stays unchanged.',
+      ),
+      const SizedBox(height: 20),
+      OutlinedButton.icon(
+        onPressed: _summaryBusy ? null : _generateSummary,
+        icon: const Icon(Icons.auto_awesome),
+        label: Text(
+          _summaryBusy
+              ? 'Generating...'
+              : _aiSummary.isEmpty
+              ? 'Generate summary'
+              : 'Regenerate summary',
+        ),
+      ),
+      if (_summaryBusy) const LinearProgressIndicator(),
+      if (_summarySource != null && _summarySource != _source)
         const Text(
-          'AI suggestions enhance discovery for learners. You can accept, edit, or ignore any suggestion.',
-          style: TextStyle(fontSize: 14, color: Colors.black54),
+          'Your story changed. Review this preview before publishing.',
         ),
-        const SizedBox(height: 20),
-
-        // AI Summary Suggestion Card
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: const Color(0xFF8A9A5B).withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: const Color(0xFF8A9A5B).withValues(alpha: 0.3),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Icon(
-                    Icons.auto_awesome,
-                    size: 18,
-                    color: Color(0xFF4A5D23),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Suggested by YATHRA AI',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.green.shade900,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              const Text(
-                'AI Summary:',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: _primaryBrown,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                _aiSummary,
-                style: const TextStyle(fontSize: 14, color: Colors.black87),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  ChoiceChip(
-                    label: const Text('Accept Summary'),
-                    selected: _aiSummaryAccepted,
-                    onSelected: (val) =>
-                        setState(() => _aiSummaryAccepted = val),
-                    selectedColor: _primaryBrown,
-                    labelStyle: TextStyle(
-                      color: _aiSummaryAccepted ? Colors.white : _primaryBrown,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  ChoiceChip(
-                    label: const Text('Ignore'),
-                    selected: !_aiSummaryAccepted,
-                    onSelected: (val) =>
-                        setState(() => _aiSummaryAccepted = !val),
-                  ),
-                ],
-              ),
-            ],
-          ),
+      const SizedBox(height: 16),
+      TextField(
+        controller: _summaryController,
+        maxLength: 700,
+        maxLines: 4,
+        decoration: const InputDecoration(
+          labelText: 'Story preview',
+          hintText: 'Generate or write a short preview',
+          border: OutlineInputBorder(),
         ),
-
-        const SizedBox(height: 28),
-
-        SizedBox(
-          width: double.infinity,
-          height: 52,
-          child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _primaryBrown,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            onPressed: () => setState(() => _currentStep = 3),
-            child: const Text(
-              'Next: Review & Publish →',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+        onChanged: (_) => setState(() => _aiSummaryAccepted = false),
+      ),
+      CheckboxListTile(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('I reviewed and approve this summary'),
+        value: _aiSummaryAccepted,
+        onChanged: _aiSummary.isEmpty || _summaryBusy
+            ? null
+            : (value) => setState(() {
+                _aiSummaryAccepted = value ?? false;
+                _summarySource = _source;
+              }),
+      ),
+      const Text(
+        'Without an approved summary, readers see an excerpt from your story.',
+      ),
+      const SizedBox(height: 20),
+      FilledButton(
+        onPressed: _summaryBusy ? null : () => setState(() => _currentStep = 3),
+        child: const Text('Next: Review & Publish'),
+      ),
+      TextButton(
+        onPressed: () => setState(() {
+          _aiSummaryAccepted = false;
+          _currentStep = 3;
+        }),
+        child: const Text('Skip summary'),
+      ),
+    ],
+  );
 
   // STEP 4: REVIEW & PUBLISH
   Widget _buildStep4ReviewAndPublish() {
@@ -1208,69 +1426,71 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
 
         const SizedBox(height: 24),
 
-        _buildSectionLabel('Story Visibility'),
-        const SizedBox(height: 8),
-        _buildDropdownContainer(
-          value: _visibility,
-          items: ['Public', 'YATHRA Community', 'Private'],
-          onChanged: (val) {
-            if (val != null) setState(() => _visibility = val);
-          },
-        ),
-
+        if (!widget.embedded) ...[
+          _buildSectionLabel('Story Visibility'),
+          const SizedBox(height: 8),
+          _buildDropdownContainer(
+            value: _visibility,
+            items: ['Public', 'YATHRA Community', 'Private'],
+            onChanged: (val) {
+              if (val != null) setState(() => _visibility = val);
+            },
+          ),
+        ],
         const SizedBox(height: 32),
 
-        // Action Buttons: Save Draft & Publish
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton(
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  side: const BorderSide(color: _primaryBrown, width: 2),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+        // Project actions are supplied by the workspace.
+        if (!widget.embedded)
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    side: const BorderSide(color: _primaryBrown, width: 2),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
-                ),
-                onPressed: () {
-                  _showSnackBar('Story saved as draft!');
-                },
-                child: const Text(
-                  'Save Draft',
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.bold,
-                    color: _primaryBrown,
+                  onPressed: () {
+                    _showSnackBar('Story saved as draft!');
+                  },
+                  child: const Text(
+                    'Save Draft',
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
+                      color: _primaryBrown,
+                    ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _primaryBrown,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+              const SizedBox(width: 16),
+              Expanded(
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _primaryBrown,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
-                ),
-                onPressed: _isPublishing ? null : _publishOrUpdateStory,
-                child: _isPublishing
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text(
-                        'Publish Story',
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.bold,
+                  onPressed: _isPublishing ? null : _publishOrUpdateStory,
+                  child: _isPublishing
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text(
+                          'Publish Story',
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                      ),
+                ),
               ),
-            ),
-          ],
-        ),
+            ],
+          ),
       ],
     );
   }

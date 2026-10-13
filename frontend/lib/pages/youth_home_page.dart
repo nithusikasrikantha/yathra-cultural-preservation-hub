@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
+import '../widgets/home_header.dart';
 
 import '../models/story.dart';
-import '../services/bookmark_service.dart';
-import '../services/published_content_signal.dart';
-import '../services/story_service.dart';
 import '../services/youth_dummy_content_store.dart';
 import '../widgets/youth_story_card.dart';
-import 'culture_connect_pages.dart';
+import '../services/story_service.dart';
 import 'youth_story_detail_page.dart';
 
 class YouthHomePage extends StatefulWidget {
@@ -31,31 +29,26 @@ class _YouthHomePageState extends State<YouthHomePage> {
   static const Color _backgroundColor = Color(0xFFF9F5EC);
   static const Color _primaryBrown = Color(0xFF4A2C1A);
   static const Color _accentBrown = Color(0xFF6B4226);
-  static const Color _cardBackground = Color(0xFFFFFDF8);
 
-  final StoryService _storyService = const StoryService();
-  final BookmarkService _bookmarkService = BookmarkService.instance;
   final YouthDummyContentStore _dummyStore = YouthDummyContentStore.instance;
   List<Story> _stories = const [];
   bool _showingDummyStories = false;
+  String _search = "";
   bool _isLoading = true;
-  bool _bookmarksReady = false;
-  String? _error;
+  bool _following = false;
+  String? _feedError;
+  int _loadVersion = 0;
 
   @override
   void initState() {
     super.initState();
-    _bookmarkService.addListener(_onBookmarksChanged);
     _dummyStore.addListener(_onBookmarksChanged);
-    PublishedContentSignal.revision.addListener(_load);
     _load();
   }
 
   @override
   void dispose() {
-    _bookmarkService.removeListener(_onBookmarksChanged);
     _dummyStore.removeListener(_onBookmarksChanged);
-    PublishedContentSignal.revision.removeListener(_load);
     super.dispose();
   }
 
@@ -64,45 +57,35 @@ class _YouthHomePageState extends State<YouthHomePage> {
   }
 
   Future<void> _load() async {
+    final version = ++_loadVersion;
     setState(() {
       _isLoading = true;
-      _error = null;
+      _feedError = null;
     });
     try {
-      final page = await _storyService.fetchStories(page: 1, limit: 4);
-      if (page.items.isNotEmpty) {
-        await _bookmarkService.load();
-      }
-      if (!mounted) return;
+      final stories = _following
+          ? (await const StoryService().fetchStories(
+              page: 1,
+              limit: 50,
+              following: true,
+            )).items
+          : _dummyStore.stories;
+      if (!mounted || version != _loadVersion) return;
       setState(() {
-        _bookmarksReady = page.items.isNotEmpty;
-        _showingDummyStories = page.items.isEmpty;
-        _stories = page.items.isEmpty ? _dummyStore.stories : page.items;
+        _stories = stories;
+        _showingDummyStories = !_following;
         _isLoading = false;
       });
     } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _error = 'Recent cultural stories could not be loaded.';
-        _isLoading = false;
-      });
+      if (mounted && version == _loadVersion)
+        setState(() {
+          _isLoading = false;
+          _feedError = 'Could not load stories. Please retry.';
+        });
     }
   }
 
-  Future<void> _toggleBookmark(Story story) async {
-    if (_dummyStore.isDummyId(story.id)) {
-      _dummyStore.toggleBookmark(story.id);
-      return;
-    }
-    try {
-      await _bookmarkService.toggle(story.id);
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('The bookmark could not be updated.')),
-      );
-    }
-  }
+  void _toggleBookmark(Story story) => _dummyStore.toggleBookmark(story.id);
 
   void _openStory(Story story) {
     Navigator.of(context).push(
@@ -138,103 +121,11 @@ class _YouthHomePageState extends State<YouthHomePage> {
     );
   }
 
-  String get _greetingName {
-    final normalizedName = widget.userName.trim();
-    if (normalizedName.isEmpty) return 'Explorer';
-    return normalizedName.split(RegExp(r'\s+')).first;
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _backgroundColor,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: PopupMenuButton<String>(
-          icon: const Icon(
-            Icons.more_vert_rounded,
-            color: _primaryBrown,
-            size: 28,
-          ),
-          color: const Color(0xFFFFFBF4),
-          elevation: 8,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          onSelected: (value) {
-            if (value == 'projects') {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const WorkspacePage(isElder: false),
-                ),
-              );
-            }
-          },
-          itemBuilder: (_) => const [
-            PopupMenuItem(
-              value: 'projects',
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.folder_outlined, size: 20),
-                  SizedBox(width: 10),
-                  Text('My Projects'),
-                ],
-              ),
-            ),
-          ],
-        ),
-        centerTitle: true,
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: _accentBrown.withValues(alpha: 0.12),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.local_florist,
-                color: _accentBrown,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 8),
-            const Text(
-              'YATHRA',
-              style: TextStyle(
-                fontFamily: 'Serif',
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 2,
-                color: _primaryBrown,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const MyConnectionsPage(isElder: false),
-              ),
-            ),
-            tooltip: 'My Connections',
-            icon: const Icon(Icons.people_alt_outlined, color: _primaryBrown),
-          ),
-          IconButton(
-            icon: const Icon(
-              Icons.account_circle_outlined,
-              color: _primaryBrown,
-              size: 28,
-            ),
-            onPressed: widget.onProfile,
-          ),
-          const SizedBox(width: 6),
-        ],
-      ),
+      appBar: HomeTopBar(isElder: false, onProfile: widget.onProfile),
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: _load,
@@ -260,118 +151,57 @@ class _YouthHomePageState extends State<YouthHomePage> {
     );
   }
 
-  Widget _buildGreetingBanner() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: _cardBackground,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.grey.withValues(alpha: 0.15)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Hello, $_greetingName!',
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: _primaryBrown,
-                    fontFamily: 'Serif',
-                  ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Discover, learn and connect with our culture.',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.black54,
-                    height: 1.3,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          InkWell(
-            onTap: widget.onProfile,
-            customBorder: const CircleBorder(),
-            child: Container(
-              width: 72,
-              height: 72,
-              decoration: BoxDecoration(
-                color: _accentBrown.withValues(alpha: 0.12),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.person_outline_rounded,
-                size: 40,
-                color: _accentBrown,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _buildGreetingBanner() => DiscoveryHeading(
+    onSearch: (value) => setState(() => _search = value.trim().toLowerCase()),
+  );
 
-  Widget _buildSubTabs() {
-    return Row(
-      children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'For You',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: _primaryBrown,
+  Widget _buildSubTabs() => Row(
+    children: [
+      for (final following in [false, true])
+        Padding(
+          padding: const EdgeInsets.only(right: 18),
+          child: InkWell(
+            onTap: () {
+              setState(() => _following = following);
+              _load();
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Column(
+                children: [
+                  Text(
+                    following ? 'Following' : 'For you',
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: _following == following
+                          ? FontWeight.bold
+                          : FontWeight.normal,
+                      color: _following == following
+                          ? _primaryBrown
+                          : Colors.black45,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    height: 3,
+                    width: following ? 80 : 60,
+                    color: _following == following
+                        ? _accentBrown
+                        : Colors.transparent,
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 4),
-            Container(
-              width: 60,
-              height: 3,
-              decoration: BoxDecoration(
-                color: _accentBrown,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(width: 28),
-        GestureDetector(
-          onTap: widget.onExplore,
-          child: const Padding(
-            padding: EdgeInsets.only(bottom: 7),
-            child: Text(
-              'Explore',
-              style: TextStyle(fontSize: 18, color: Colors.black45),
             ),
           ),
         ),
-        const Spacer(),
-        IconButton(
-          onPressed: () => Navigator.of(context).pushNamed('/youth-saved'),
-          tooltip: 'Saved stories',
-          visualDensity: VisualDensity.compact,
-          icon: const Icon(Icons.bookmarks_outlined, color: _accentBrown),
-        ),
-      ],
-    );
-  }
+      const Spacer(),
+      IconButton(
+        onPressed: () => Navigator.pushNamed(context, '/youth-saved'),
+        tooltip: 'Saved stories',
+        icon: const Icon(Icons.bookmarks_outlined, color: _accentBrown),
+      ),
+    ],
+  );
 
   Widget _buildStoryFeed() {
     if (_isLoading) {
@@ -380,7 +210,13 @@ class _YouthHomePageState extends State<YouthHomePage> {
         child: Center(child: CircularProgressIndicator(color: _accentBrown)),
       );
     }
-    if (_error != null) return _MessageCard(message: _error!, onRetry: _load);
+    if (_feedError != null)
+      return _MessageCard(message: _feedError!, onRetry: _load);
+    if (_following && _stories.isEmpty)
+      return _MessageCard(
+        message: 'Follow communities to see their published stories here.',
+        onRetry: widget.onExplore,
+      );
     if (_stories.isEmpty) {
       return const _MessageCard(
         message: 'No cultural stories have been shared yet.',
@@ -388,19 +224,19 @@ class _YouthHomePageState extends State<YouthHomePage> {
     }
     return Column(
       children: [
-        for (final story in _stories)
+        for (final story in _stories.where(
+          (s) => '${s.title} ${s.storyText} ${s.location ?? ''}'
+              .toLowerCase()
+              .contains(_search),
+        ))
           YouthStoryCard(
             story: story,
             dummyMetadata: _showingDummyStories
                 ? _dummyStore.metadataFor(story.id)
                 : null,
             onTap: () => _openStory(story),
-            isBookmarked: _showingDummyStories
-                ? _dummyStore.isBookmarked(story.id)
-                : _bookmarksReady && _bookmarkService.isBookmarked(story.id),
-            onBookmark: _showingDummyStories || _bookmarksReady
-                ? () => _toggleBookmark(story)
-                : null,
+            isBookmarked: _dummyStore.isBookmarked(story.id),
+            onBookmark: () => _toggleBookmark(story),
             onLike: _showingDummyStories
                 ? () => _dummyStore.toggleLike(story.id)
                 : null,
