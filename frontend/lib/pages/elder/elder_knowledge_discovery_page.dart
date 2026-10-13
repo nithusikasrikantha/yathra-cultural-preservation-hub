@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
 
-import '../models/story.dart';
-import '../services/story_service.dart';
-import '../theme/app_theme.dart';
+import '../../config/api_config.dart';
+import '../../models/story.dart';
+import '../../services/story_service.dart';
+import '../../theme/app_theme.dart';
+import 'share_story_page.dart';
 
-/// Standalone elder cultural knowledge search and discovery page.
-///
-/// This page uses the existing Stories API through [StoryService]. It can be
-/// added to the app's navigation later without changing its data or UI layer.
+/// Standalone elder cultural knowledge search and discovery page with Edit and Delete capabilities.
 class ElderKnowledgeDiscoveryPage extends StatefulWidget {
   const ElderKnowledgeDiscoveryPage({
     super.key,
@@ -35,6 +36,7 @@ class _ElderKnowledgeDiscoveryPageState
     'Other',
   ];
 
+  final FlutterSecureStorage _storage = const FlutterSecureStorage();
   final TextEditingController _searchController = TextEditingController();
   final List<Story> _stories = [];
 
@@ -158,10 +160,96 @@ class _ElderKnowledgeDiscoveryPageState
     _loadFirstPage();
   }
 
+  void _editStory(Story story) async {
+    final storyMap = {
+      '_id': story.id,
+      'title': story.title,
+      'category': story.category,
+      'language': story.language,
+      'storyText': story.storyText,
+      'audioPath': story.audioPath,
+      'bannerImage': story.bannerImage,
+      'additionalImages': story.additionalImages,
+      'location': story.location,
+      'timePeriod': story.timePeriod,
+      'community': story.community,
+      'communityId': story.communityId,
+      'aiSummary': story.aiSummary,
+      'summaryStatus': story.summaryStatus,
+    };
+
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (context) => ShareStoryPage(storyToEdit: storyMap),
+      ),
+    );
+
+    if (result == true || mounted) {
+      _loadFirstPage();
+    }
+  }
+
+  Future<void> _deleteStory(Story story) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text(
+          'Delete Story?',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        content: Text('Are you sure you want to delete "${story.title}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade700,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final token = await _storage.read(key: 'auth_token');
+      final response = await http.delete(
+        Uri.parse('${ApiConfig.baseUrl}/api/stories/${story.id}'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Story deleted successfully.')),
+        );
+        _loadFirstPage();
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not delete story: ${response.body}')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to delete story: $e')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Cultural Knowledge')),
+      appBar: AppBar(title: const Text('Post Library')),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
@@ -210,14 +298,18 @@ class _ElderKnowledgeDiscoveryPageState
                           Text(
                             _hasActiveFilters
                                 ? 'Search results'
-                                : 'Recently shared',
+                                : 'All Published Posts',
                             style: Theme.of(
                               context,
                             ).textTheme.headlineMedium?.copyWith(fontSize: 21),
                           ),
                           const SizedBox(height: 12),
                           for (final story in _stories)
-                            _KnowledgeStoryCard(story: story),
+                            _KnowledgeStoryCard(
+                              story: story,
+                              onEdit: () => _editStory(story),
+                              onDelete: () => _deleteStory(story),
+                            ),
                           if (_loadMoreError != null)
                             _buildMessage(
                               icon: Icons.wifi_off_outlined,
@@ -275,7 +367,7 @@ class _ElderKnowledgeDiscoveryPageState
               const Icon(Icons.auto_stories_outlined, size: 20),
               const SizedBox(width: 8),
               Text(
-                'ELDER KNOWLEDGE LIBRARY',
+                'ELDER POST LIBRARY',
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
                   letterSpacing: 1.1,
                   fontWeight: FontWeight.w700,
@@ -286,14 +378,14 @@ class _ElderKnowledgeDiscoveryPageState
           ),
           const SizedBox(height: 14),
           Text(
-            'Discover wisdom passed down through generations',
+            'Manage and explore your published posts',
             style: Theme.of(
               context,
-            ).textTheme.headlineMedium?.copyWith(fontSize: 25, height: 1.2),
+            ).textTheme.headlineMedium?.copyWith(fontSize: 24, height: 1.2),
           ),
           const SizedBox(height: 8),
           Text(
-            'Explore stories, traditions, recipes, and local knowledge shared by elders and community members.',
+            'View all your published stories, edit content, or remove outdated entries from the community library.',
             style: Theme.of(
               context,
             ).textTheme.bodyMedium?.copyWith(height: 1.5),
@@ -315,7 +407,7 @@ class _ElderKnowledgeDiscoveryPageState
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Find cultural knowledge',
+              'Search your posts',
               style: Theme.of(
                 context,
               ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
@@ -327,7 +419,7 @@ class _ElderKnowledgeDiscoveryPageState
               onChanged: (_) => setState(() {}),
               onSubmitted: (_) => _applyFilters(),
               decoration: InputDecoration(
-                hintText: 'Search stories and traditions',
+                hintText: 'Search posts by keyword',
                 prefixIcon: const Icon(Icons.search),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -346,7 +438,7 @@ class _ElderKnowledgeDiscoveryPageState
               spacing: 8,
               runSpacing: 2,
               children: [
-                _categoryChip('All knowledge', null),
+                _categoryChip('All categories', null),
                 for (final category in _categories)
                   _categoryChip(category, category),
               ],
@@ -357,7 +449,7 @@ class _ElderKnowledgeDiscoveryPageState
               child: ElevatedButton.icon(
                 onPressed: _isLoading ? null : _applyFilters,
                 icon: const Icon(Icons.search),
-                label: const Text('Search knowledge'),
+                label: const Text('Search posts'),
               ),
             ),
             if (_hasActiveFilters ||
@@ -396,7 +488,7 @@ class _ElderKnowledgeDiscoveryPageState
   Widget _buildInitialLoading() {
     return Center(
       child: Semantics(
-        label: 'Loading cultural knowledge',
+        label: 'Loading post library',
         child: const CircularProgressIndicator(),
       ),
     );
@@ -440,9 +532,15 @@ class _ElderKnowledgeDiscoveryPageState
 }
 
 class _KnowledgeStoryCard extends StatelessWidget {
-  const _KnowledgeStoryCard({required this.story});
+  const _KnowledgeStoryCard({
+    required this.story,
+    required this.onEdit,
+    required this.onDelete,
+  });
 
   final Story story;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -523,6 +621,59 @@ class _KnowledgeStoryCard extends StatelessWidget {
               ),
             ),
           ],
+          const SizedBox(height: 16),
+          const Divider(),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: AppTheme.primaryColor),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                ),
+                onPressed: onEdit,
+                icon: const Icon(
+                  Icons.edit_outlined,
+                  size: 18,
+                  color: AppTheme.primaryColor,
+                ),
+                label: const Text(
+                  'Edit',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.primaryColor,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: Colors.red.shade700),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                ),
+                onPressed: onDelete,
+                icon: Icon(
+                  Icons.delete_outline,
+                  size: 18,
+                  color: Colors.red.shade700,
+                ),
+                label: Text(
+                  'Delete',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.red.shade700,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );

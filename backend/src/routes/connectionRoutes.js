@@ -3,6 +3,8 @@ const mongoose = require('mongoose');
 const Connection = require('../models/Connection');
 const User = require('../models/User');
 const Story = require('../models/Story');
+const communities = require('../data/communities.json');
+const Membership = require('../models/CommunityMembership');
 const authenticate = require('../middleware/authenticate');
 
 const router = express.Router();
@@ -49,7 +51,11 @@ router.get('/notifications', async (req, res) => {
 
 router.post('/', async (req, res) => {
   if (req.user.role !== 'youth') return res.status(403).json({ message: 'Youth account required.' });
-  const { elderId, communityId = '', communityName = '' } = req.body || {};
+  const { elderId, communityId = '' } = req.body || {};
+  const community = communityId ? communities.find(c => c.id === communityId) : null;
+  if (communityId && !community) return res.status(400).json({ message: 'Select a valid community.' });
+  if (community && !await Membership.exists({ user: req.user._id, communityId })) return res.status(403).json({ message: 'Follow this community before requesting a collaboration.' });
+  const communityName = community?.title || '';
   if (!validId(elderId)) return res.status(400).json({ message: 'A valid elder is required.' });
   const elder = await User.findOne({ _id: elderId, role: 'elder' });
   if (!elder) return res.status(404).json({ message: 'Elder not found.' });
@@ -194,6 +200,20 @@ router.put('/:id/workspace', async (req, res) => {
   if (tags !== undefined && (!Array.isArray(tags) || tags.length > 12 || tags.some((tag) => typeof tag !== 'string' || tag.trim().length > 40))) {
     return res.status(400).json({ message: 'Tags must contain up to 12 short text values.' });
   }
+  const extra = req.body || {};
+  const photoValid = value => typeof value === 'string' && value.length <= 2000 && (/^\/uploads\/[a-zA-Z0-9_.-]+$/.test(value) || /^https?:\/\//.test(value));
+  if (extra.bannerImage != null && extra.bannerImage !== '' && !photoValid(extra.bannerImage)) return res.status(400).json({ message: 'Invalid banner image.' });
+  if (extra.additionalImages !== undefined && (!Array.isArray(extra.additionalImages) || extra.additionalImages.length > 8 || extra.additionalImages.some(value => !photoValid(value)))) return res.status(400).json({ message: 'Choose up to eight valid additional images.' });
+  for (const key of ['location', 'timePeriod', 'audioPath', 'aiSummary']) {
+    if (extra[key] != null && (typeof extra[key] !== 'string' || extra[key].length > (key === 'aiSummary' ? 700 : 2000))) return res.status(400).json({ message: `Invalid ${key}.` });
+  }
+  if (extra.summaryStatus !== undefined && !['approved', 'skipped', 'outdated'].includes(extra.summaryStatus)) return res.status(400).json({ message: 'Invalid summary status.' });
+  const sourceChanged = (title !== undefined && title.trim() !== workspace.title) || (content !== undefined && content.trim() !== workspace.content) || (language !== undefined && language.trim() !== workspace.language);
+  for (const key of ['bannerImage', 'additionalImages', 'location', 'timePeriod', 'audioPath', 'aiSummary', 'summaryStatus']) {
+    if (Object.hasOwn(extra, key)) workspace[key] = extra[key];
+  }
+  if (sourceChanged && extra.summaryStatus === undefined && workspace.aiSummary) workspace.summaryStatus = 'outdated';
+  if (workspace.summaryStatus === 'approved' && !workspace.aiSummary?.trim()) return res.status(400).json({ message: 'Review a summary or skip it.' });
   workspace.title = typeof title === 'string' ? title.trim() : workspace.title;
   workspace.content = typeof content === 'string' ? content.trim() : workspace.content;
   workspace.instructions = typeof instructions === 'string' ? instructions.trim() : workspace.instructions;
@@ -219,6 +239,7 @@ router.post('/:id/submit', async (req, res) => {
   if (!['draft', 'changes_requested'].includes(workspace.status)) {
     return res.status(400).json({ message: 'This contribution is already waiting for review or has been published.' });
   }
+  if (!workspace.category?.trim() || !['Tamil', 'Sinhala', 'English'].includes(workspace.language)) return res.status(400).json({ message: 'Add a category and choose a story language.' });
   if (!workspace.title.trim() || !workspace.content.trim()) {
     return res.status(400).json({ message: 'Add a title and contribution before sending it for review.' });
   }
@@ -258,6 +279,7 @@ router.post('/:id/approve', async (req, res) => {
   const workspace = workspaceFor(connection, req.body?.workspaceItemId);
   if (!workspace) return res.status(404).json({ message: 'Workspace content not found.' });
   if (workspace.status !== 'under_review') return res.status(400).json({ message: 'Only a contribution under review can be approved.' });
+  if (!workspace.category?.trim() || !['Tamil', 'Sinhala', 'English'].includes(workspace.language)) return res.status(400).json({ message: 'Add a category and choose a story language.' });
   if (!workspace.title.trim() || !workspace.content.trim()) return res.status(400).json({ message: 'Add a title and cultural content before approving.' });
   workspace.status = 'approved';
   workspace.reviewedAt = new Date();
@@ -275,13 +297,20 @@ router.post('/:id/publish', async (req, res) => {
     && connection.receiver._id.toString() === req.user._id.toString();
   if (!isReviewingElder) return res.status(403).json({ message: 'Only the connected elder can publish a reviewed contribution.' });
   if (workspace.status !== 'approved') return res.status(400).json({ message: 'Approve the contribution before publishing.' });
+  if (!workspace.category?.trim() || !['Tamil', 'Sinhala', 'English'].includes(workspace.language)) return res.status(400).json({ message: 'Add a category and choose a story language.' });
   if (!workspace.title.trim() || !workspace.content.trim()) return res.status(400).json({ message: 'Add a title and cultural content before publishing.' });
   const story = await Story.create({
-    title: workspace.title, category: workspace.category || connection.communityName || 'Culture Connect',
+    title: workspace.title, category: workspace.category || 'Traditional Story',
     language: workspace.language || connection.requester.profileInfo?.preferredLanguage
       || connection.receiver.profileInfo?.preferredLanguage
       || 'English',
-    storyText: [workspace.content, workspace.instructions, workspace.culturalSignificance].filter(Boolean).join('\n\n'),
+    storyText: workspace.content,
+    bannerImage: workspace.bannerImage || null, additionalImages: workspace.additionalImages || [],
+    location: workspace.location || '', timePeriod: workspace.timePeriod || '',
+    audioPath: workspace.audioPath || null,
+    aiSummary: workspace.summaryStatus === 'approved' ? workspace.aiSummary : null,
+    summaryStatus: workspace.summaryStatus || 'skipped',
+    summaryUpdatedAt: workspace.summaryStatus === 'approved' ? new Date() : null,
     imageDataUri: workspace.imageDataUri || '',
     tags: [...new Set(['collaborative', 'culture-connect', (workspace.contentType || 'Story').toLowerCase(), ...(workspace.tags || [])])], isDeleted: false,
     connection: connection._id, communityId: connection.communityId,

@@ -4,8 +4,8 @@ import 'screens/register_screen.dart';
 import 'screens/splash_screen.dart';
 import 'theme/app_theme.dart';
 
+import 'pages/elder/share_story_page.dart';
 import 'pages/explore_page.dart';
-import 'pages/share_story_page.dart';
 import 'pages/youth_hub_shell.dart';
 import 'pages/youth_profile_page.dart';
 import 'pages/youth_saved_posts_page.dart';

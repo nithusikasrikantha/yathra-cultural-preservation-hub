@@ -246,6 +246,34 @@ router.put('/role', requireAuth, async (req, res) => {
   }
 });
 
+const elderProfileResponse = user => ({ _id: user._id, name: user.name, bio: user.profileInfo?.bio || '', location: user.profileInfo?.location || '', preferredLanguage: user.profileInfo?.preferredLanguage || 'Tamil', avatar: user.profileInfo?.avatar || null });
+router.get('/elder-profile', requireAuth, (req, res) => {
+  if (req.user.role !== 'elder') return res.status(403).json({ message: 'An elder account is required.' });
+  res.json({ profile: elderProfileResponse(req.user) });
+});
+router.put('/elder-profile', requireAuth, async (req, res) => {
+  if (req.user.role !== 'elder') return res.status(403).json({ message: 'An elder account is required.' });
+  const { name, bio = '', location = '', preferredLanguage } = req.body || {};
+  if (typeof name !== 'string' || !name.trim() || name.trim().length > 100 || typeof bio !== 'string' || bio.length > 1000 || typeof location !== 'string' || location.length > 100 || !youthLanguages.has(preferredLanguage)) return res.status(400).json({ message: 'Enter a name, a valid language, and short profile details.' });
+  try {
+    req.user.name = name.trim();
+    req.user.profileInfo = { ...(req.user.profileInfo?.toObject?.() || req.user.profileInfo || {}), bio: bio.trim(), location: location.trim(), preferredLanguage };
+    await req.user.save();
+    res.json({ profile: elderProfileResponse(req.user) });
+  } catch (_) { res.status(500).json({ message: 'Profile could not be saved.' }); }
+});
+router.get('/profile-stats', requireAuth, async (req, res) => {
+  try {
+    const Story = require('../models/Story');
+    const Connection = require('../models/Connection');
+    const [contributions, connections] = await Promise.all([
+      Story.countDocuments({ isDeleted: false, $or: [{ publishedBy: req.user._id }, { contributors: req.user._id }] }),
+      Connection.countDocuments({ status: 'accepted', $or: [{ requester: req.user._id }, { receiver: req.user._id }] }),
+    ]);
+    res.json({ contributions, connections });
+  } catch (_) { res.status(500).json({ message: 'Profile counts could not be loaded.' }); }
+});
+
 // @route   GET /api/auth/youth-profile
 // @desc    Get the authenticated youth user's profile
 // @access  Authenticated youth user

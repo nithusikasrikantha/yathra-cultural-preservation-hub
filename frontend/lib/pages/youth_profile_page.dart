@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../screens/login_screen.dart';
 import '../services/auth_service.dart';
+import 'culture_connect_pages.dart';
+import '../services/published_content_signal.dart';
 
 const _languages = ['Tamil', 'Sinhala', 'English'];
 const _interests = [
@@ -23,16 +25,14 @@ const _buttonBg = Color(0xFFF5EBE1);
 /// Temporary Youth-only presentation data until social and learning metrics
 /// have dedicated backend support. These values are never persisted.
 abstract final class _YouthPreviewMetrics {
-  static const followers = 18;
-  static const following = 7;
   static const savedStories = 12;
   static const storiesViewed = 24;
   static const categoriesExplored = 8;
-  static const elderConnections = 5;
 }
 
 class YouthProfilePage extends StatefulWidget {
-  const YouthProfilePage({super.key, this.onProfileSaved});
+  const YouthProfilePage({super.key, this.onProfileSaved, this.onHome});
+  final VoidCallback? onHome;
 
   final ValueChanged<Map<String, dynamic>>? onProfileSaved;
 
@@ -42,6 +42,42 @@ class YouthProfilePage extends StatefulWidget {
 
 class _YouthProfilePageState extends State<YouthProfilePage> {
   final AuthService _authService = AuthService();
+  Map<String, dynamic>? _stats;
+  Future<void> _loadStats() async {
+    try {
+      final stats = await _authService.getProfileStats();
+      if (mounted) setState(() => _stats = stats);
+    } catch (_) {
+      if (mounted) setState(() => _stats = null);
+    }
+  }
+
+  Future<void> _openProjects() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => const WorkspacePage(isElder: false),
+      ),
+    );
+    if (mounted) _loadStats();
+  }
+
+  Future<void> _openConnections() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => const MyConnectionsPage(isElder: false),
+      ),
+    );
+    if (mounted) _loadStats();
+  }
+
+  @override
+  void dispose() {
+    PublishedContentSignal.revision.removeListener(_loadStats);
+    super.dispose();
+  }
+
   Map<String, dynamic>? _profile;
   String? _loadError;
   bool _isLoading = true;
@@ -50,6 +86,8 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
   void initState() {
     super.initState();
     _loadProfile();
+    _loadStats();
+    PublishedContentSignal.revision.addListener(_loadStats);
   }
 
   Future<void> _loadProfile() async {
@@ -148,7 +186,11 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: _primaryBrown, size: 24),
           onPressed: () {
-            if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+            if (widget.onHome != null) {
+              widget.onHome!();
+            } else if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            }
           },
         ),
         centerTitle: true,
@@ -264,6 +306,15 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
               const SizedBox(height: 18),
               _insightsCard(),
               const SizedBox(height: 18),
+              _card(
+                'MY PROJECTS',
+                _pillButton(
+                  Icons.workspaces_outline,
+                  'My Projects',
+                  _openProjects,
+                ),
+              ),
+              const SizedBox(height: 18),
               _connectionsCard(),
               const SizedBox(height: 18),
               _accountCard(),
@@ -280,7 +331,7 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
     final name = _stringValue(profile['name']);
     final location = _stringValue(profile['location']);
     final language = _stringValue(profile['preferredLanguage']);
-    final interests = _profileInterests(profile);
+
     return Column(
       children: [
         Container(
@@ -342,11 +393,9 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            _stat('${interests.length}', 'Interests'),
+            _stat(_stats?['contributions']?.toString() ?? '—', 'Contributions'),
             _statDivider(24),
-            _stat('${_YouthPreviewMetrics.followers}', 'Followers'),
-            _statDivider(24),
-            _stat('${_YouthPreviewMetrics.following}', 'Following'),
+            _stat(_stats?['connections']?.toString() ?? '—', 'Connections'),
           ],
         ),
         const SizedBox(height: 16),
@@ -487,12 +536,12 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
     'CONNECTIONS',
     Column(
       children: [
-        const Row(
+        Row(
           children: [
             Icon(Icons.people_outline_rounded, color: _accentBrown, size: 22),
             SizedBox(width: 12),
             Text(
-              '${_YouthPreviewMetrics.elderConnections} Elders connected',
+              '${_stats?['connections'] ?? '—'} people connected',
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
@@ -505,10 +554,7 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
         _pillButton(
           Icons.people_outline_rounded,
           'Manage Connections',
-          () => _showComingSoon(
-            'Connections',
-            'Connection management will be available here.',
-          ),
+          _openConnections,
         ),
       ],
     ),
