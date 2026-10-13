@@ -1,13 +1,7 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 
 import '../share_story_page.dart';
 import '../culture_connect_pages.dart';
-import '../../models/story.dart';
-import '../../services/published_content_signal.dart';
-import '../../services/story_service.dart';
-import '../youth_story_detail_page.dart';
 
 class ElderHomePage extends StatefulWidget {
   const ElderHomePage({super.key, this.userName = 'Kamala', this.onProfile});
@@ -26,29 +20,6 @@ class _ElderHomePageState extends State<ElderHomePage> {
   static const Color _cardBg = Color(0xFFFFFDF8);
 
   int _selectedTab = 0; // 0: For You, 1: Following
-  List<Story> _publishedStories = const [];
-
-  @override
-  void initState() {
-    super.initState();
-    PublishedContentSignal.revision.addListener(_loadPublishedStories);
-    _loadPublishedStories();
-  }
-
-  @override
-  void dispose() {
-    PublishedContentSignal.revision.removeListener(_loadPublishedStories);
-    super.dispose();
-  }
-
-  Future<void> _loadPublishedStories() async {
-    try {
-      final page = await const StoryService().fetchStories(page: 1, limit: 4);
-      if (mounted) setState(() => _publishedStories = page.items);
-    } catch (_) {
-      // Keep the existing feed available when the stories service is offline.
-    }
-  }
 
   void _openShareStory() {
     Navigator.of(
@@ -163,11 +134,6 @@ class _ElderHomePageState extends State<ElderHomePage> {
                   // Greeting Header Banner
                   _buildGreetingBanner(),
 
-                  if (_publishedStories.isNotEmpty) ...[
-                    const SizedBox(height: 18),
-                    _buildRecentlyPublished(),
-                  ],
-
                   const SizedBox(height: 20),
 
                   // For You / Following Sub-Tabs
@@ -231,56 +197,6 @@ class _ElderHomePageState extends State<ElderHomePage> {
       ),
     );
   }
-
-  Widget _buildRecentlyPublished() => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      const Text(
-        'Recently Published',
-        style: TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.bold,
-          color: _primaryBrown,
-        ),
-      ),
-      const SizedBox(height: 10),
-      ..._publishedStories.map(
-        (story) => Card(
-          color: _cardBg,
-          child: ListTile(
-            leading: story.imageDataUri == null
-                ? const CircleAvatar(
-                    backgroundColor: Color(0xFFEADCC9),
-                    child: Icon(
-                      Icons.auto_stories_rounded,
-                      color: _accentBrown,
-                    ),
-                  )
-                : ClipOval(
-                    child: Image.memory(
-                      base64Decode(story.imageDataUri!.split(',').last),
-                      width: 42,
-                      height: 42,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-            title: Text(
-              story.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            subtitle: Text('${story.category} • ${story.language}'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => YouthStoryDetailPage(storyId: story.id),
-              ),
-            ),
-          ),
-        ),
-      ),
-    ],
-  );
 
   Widget _buildGreetingBanner() {
     return Container(

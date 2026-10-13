@@ -10,17 +10,20 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
+  static const _brown = Color(0xFF542717);
+  static const _darkBrown = Color(0xFF2D1B14);
+  static const _muted = Color(0xFF806D61);
+  static const _cream = Color(0xFFF5F0E6);
+
   String? _selectedRole;
   String? _roleError;
-  String _selectedLanguage = 'English';
-  String _selectedRegion = 'Jaffna';
-
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   final _authService = AuthService();
   bool _isSubmitting = false;
+  bool _showPassword = false;
 
   @override
   void dispose() {
@@ -32,7 +35,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _register() async {
     if (_selectedRole == null) {
-      setState(() => _roleError = 'Please select Elder or Youth.');
+      setState(() => _roleError = 'Please choose Elder or Youth / Learner.');
       return;
     }
     setState(() => _roleError = null);
@@ -46,20 +49,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
         role: _selectedRole!,
       );
       if (!mounted) return;
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             result['message'] as String? ??
                 'Registration successful! Please log in.',
           ),
-          backgroundColor: Theme.of(context).colorScheme.primary,
+          backgroundColor: _brown,
         ),
       );
-
       await Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const LoginScreen()),
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
       );
     } catch (error) {
       if (!mounted) return;
@@ -74,309 +75,321 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            if (Navigator.canPop(context)) {
-              Navigator.pop(context);
-            } else {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (context) => const LoginScreen()),
-              );
-            }
-          },
-        ),
-        title: const Text('Back', style: TextStyle(fontSize: 14)),
-        titleSpacing: -10,
-        backgroundColor: Colors.transparent,
-        elevation: 0,
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: _cream,
+    appBar: AppBar(
+      backgroundColor: _cream,
+      elevation: 0,
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back_rounded, color: _darkBrown),
+        onPressed: () {
+          if (Navigator.canPop(context)) {
+            Navigator.pop(context);
+          } else {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const LoginScreen()),
+            );
+          }
+        },
       ),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 26.0, vertical: 10.0),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Create Account',
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 28,
+    ),
+    body: SafeArea(
+      top: false,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 2, 20, 18),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Create Account',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Serif',
+                  color: _darkBrown,
+                  fontSize: 23,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Join YATHRA and be part of our cultural journey',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: _muted, fontSize: 12),
+              ),
+              const SizedBox(height: 14),
+              _fieldLabel('FULL NAME'),
+              TextFormField(
+                controller: _nameController,
+                textCapitalization: TextCapitalization.words,
+                textInputAction: TextInputAction.next,
+                decoration: _decoration(
+                  hint: 'Enter your full name',
+                  icon: Icons.person_outline_rounded,
+                ),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'Name is required.'
+                    : null,
+              ),
+              const SizedBox(height: 9),
+              _fieldLabel('EMAIL'),
+              TextFormField(
+                controller: _emailController,
+                keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.next,
+                decoration: _decoration(
+                  hint: 'Enter your email',
+                  icon: Icons.mail_outline_rounded,
+                ),
+                validator: (value) {
+                  final email = value?.trim() ?? '';
+                  if (email.isEmpty) return 'Email is required.';
+                  if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$')
+                      .hasMatch(email)) {
+                    return 'Enter a valid email address.';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 9),
+              _fieldLabel('PASSWORD'),
+              TextFormField(
+                controller: _passwordController,
+                obscureText: !_showPassword,
+                textInputAction: TextInputAction.done,
+                decoration: _decoration(
+                  hint: 'Create a password',
+                  icon: Icons.lock_outline_rounded,
+                ).copyWith(
+                  suffixIcon: IconButton(
+                    tooltip: _showPassword ? 'Hide password' : 'Show password',
+                    onPressed: () =>
+                        setState(() => _showPassword = !_showPassword),
+                    icon: Icon(
+                      _showPassword
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
+                      color: _muted,
+                    ),
                   ),
                 ),
-
-                const SizedBox(height: 24),
-
-                // Persona / Role Selection Section
-                _buildFieldLabel('SELECT YOUR EXPERIENCE'),
-                const SizedBox(height: 8),
-
-                // Elder Persona Card
-                _buildPersonaCard(
-                  role: 'elder',
-                  title: 'Elder',
-                  subtitle:
-                      'Share stories, speak traditions, and guide the youth',
-                ),
-
-                const SizedBox(height: 12),
-
-                // Youth Persona Card
-                _buildPersonaCard(
-                  role: 'youth',
-                  title: 'Youth',
-                  subtitle:
-                      'Discover heritage, translate dialects, and co-create with elders',
-                ),
-
-                if (_roleError != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    _roleError!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                      fontSize: 12,
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Password is required.';
+                  }
+                  if (value.length < 8 || value.length > 128) {
+                    return 'Use 8 to 128 characters.';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 13),
+              _fieldLabel('SELECT YOUR ROLE'),
+              const SizedBox(height: 3),
+              Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 100,
+                      child: _RoleCard(
+                        title: 'Elder',
+                        subtitle: 'Share your knowledge',
+                        icon: Icons.elderly_rounded,
+                        selected: _selectedRole == 'elder',
+                        onTap: () => _chooseRole('elder'),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: SizedBox(
+                      height: 100,
+                      child: _RoleCard(
+                        title: 'Youth',
+                        subtitle: 'Discover and learn',
+                        icon: Icons.school_rounded,
+                        selected: _selectedRole == 'youth',
+                        onTap: () => _chooseRole('youth'),
+                      ),
                     ),
                   ),
                 ],
-
-                const SizedBox(height: 24),
-
-                _buildFieldLabel('FULL NAME'),
-                TextFormField(
-                  controller: _nameController,
-                  decoration: const InputDecoration(
-                    hintText: 'Enter your full name',
-                  ),
-                  validator: (value) => value == null || value.trim().isEmpty
-                      ? 'Name is required.'
-                      : null,
+              ),
+              if (_roleError != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _roleError!,
+                  style: const TextStyle(color: Color(0xFFB3261E), fontSize: 12),
                 ),
-
-                const SizedBox(height: 20),
-
-                _buildFieldLabel('LANGUAGE PREFERENCE'),
-                _buildDropdown(
-                  ['Tamil', 'Sinhala', 'English'],
-                  _selectedLanguage,
-                  (val) {
-                    setState(() => _selectedLanguage = val!);
-                  },
-                ),
-
-                const SizedBox(height: 20),
-
-                _buildFieldLabel('REGION / DISTRICT'),
-                _buildDropdown(
-                  ['Jaffna', 'Kandy', 'Galle', 'Colombo'],
-                  _selectedRegion,
-                  (val) {
-                    setState(() => _selectedRegion = val!);
-                  },
-                ),
-
-                const SizedBox(height: 20),
-
-                _buildFieldLabel('EMAIL OR PHONE NUMBER'),
-                TextFormField(
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
-                    hintText: 'e.g. email@example.com',
-                  ),
-                  validator: (value) {
-                    final email = value?.trim() ?? '';
-                    if (email.isEmpty) return 'Email is required.';
-                    if (!RegExp(
-                      r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$',
-                    ).hasMatch(email)) {
-                      return 'Enter a valid email address.';
-                    }
-                    return null;
-                  },
-                ),
-
-                const SizedBox(height: 20),
-
-                _buildFieldLabel('PASSWORD'),
-                TextFormField(
-                  controller: _passwordController,
-                  obscureText: true,
-                  decoration: const InputDecoration(
-                    hintText: 'Create a strong password',
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Password is required.';
-                    }
-                    if (value.length < 8 || value.length > 128) {
-                      return 'Password must be between 8 and 128 characters.';
-                    }
-                    return null;
-                  },
-                ),
-
-                const SizedBox(height: 32),
-
-                ElevatedButton(
-                  onPressed: _isSubmitting ? null : _register,
-                  child: Text(
-                    _isSubmitting ? 'Creating account...' : 'Continue',
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-
-                Center(
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Text('Already have an account? '),
-                      GestureDetector(
-                        onTap: () {
-                          Navigator.pushReplacement(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const LoginScreen(),
-                            ),
-                          );
-                        },
-                        child: const Text(
-                          'Log In',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 30),
               ],
-            ),
+              const SizedBox(height: 13),
+              SizedBox(
+                height: 46,
+                child: ElevatedButton(
+                  onPressed: _isSubmitting ? null : _register,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _brown,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(13),
+                    ),
+                  ),
+                  child: _isSubmitting
+                      ? const SizedBox(
+                          width: 21,
+                          height: 21,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text(
+                          'Create Account',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Flexible(
+                    child: Text(
+                      'Already have an account? ',
+                      style: TextStyle(color: _muted, fontSize: 12),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () => Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(builder: (_) => const LoginScreen()),
+                    ),
+                    child: const Text(
+                      'Login',
+                      style: TextStyle(
+                        color: _brown,
+                        fontWeight: FontWeight.w800,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
       ),
-      // Bottom Navigation Bar is removed as requested
-    );
-  }
+    ),
+  );
 
-  Widget _buildPersonaCard({
-    required String role,
-    required String title,
-    required String subtitle,
-  }) {
-    final isSelected = _selectedRole == role;
-    final primaryColor = Theme.of(context).colorScheme.primary;
+  void _chooseRole(String role) => setState(() {
+    _selectedRole = role;
+    _roleError = null;
+  });
 
-    return InkWell(
-      onTap: () {
-        setState(() {
-          _selectedRole = role;
-          _roleError = null;
-        });
-      },
+  static Widget _fieldLabel(String label) => Padding(
+    padding: const EdgeInsets.only(bottom: 7),
+    child: Text(
+      label,
+      style: const TextStyle(
+        color: _muted,
+        fontSize: 11,
+        letterSpacing: 1.1,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+  );
+
+  static InputDecoration _decoration({
+    required String hint,
+    required IconData icon,
+  }) => InputDecoration(
+    hintText: hint,
+    prefixIcon: Icon(icon, size: 19, color: _muted),
+    filled: true,
+    fillColor: const Color(0xFFFFFEFB),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+    enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      borderSide: const BorderSide(color: Color(0xFFE8DED3)),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: _brown, width: 1.5),
+    ),
+  );
+}
+
+class _RoleCard extends StatelessWidget {
+  const _RoleCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    selected: selected,
+    label: title,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(13),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 7),
         decoration: BoxDecoration(
-          color: isSelected
-              ? primaryColor.withValues(alpha: 0.08)
-              : Colors.white.withValues(alpha: 0.5),
+          color: selected ? const Color(0xFFFFEBDD) : const Color(0xFFFFFEFB),
+          borderRadius: BorderRadius.circular(13),
           border: Border.all(
-            color: isSelected
-                ? primaryColor
-                : Colors.grey.withValues(alpha: 0.35),
-            width: isSelected ? 1.8 : 1.0,
+            color: selected ? const Color(0xFFD66A3D) : const Color(0xFFE5D8C9),
+            width: selected ? 1.8 : 1,
           ),
-          borderRadius: BorderRadius.circular(12),
         ),
-        child: Row(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 22,
-              height: 22,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: isSelected ? primaryColor : Colors.grey,
-                  width: isSelected ? 6 : 1.5,
-                ),
-                color: Colors.white,
+            CircleAvatar(
+              radius: 14,
+              backgroundColor: const Color(0xFFFFEBDD),
+              child: Icon(icon, size: 19, color: const Color(0xFF8F351C)),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFF542717),
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
               ),
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                      color: primaryColor,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: primaryColor.withValues(alpha: 0.75),
-                      height: 1.3,
-                    ),
-                  ),
-                ],
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              style: const TextStyle(
+                color: Color(0xFF806D61),
+                fontSize: 11,
+                height: 1.2,
               ),
             ),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildFieldLabel(String label) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
-      child: Text(
-        label,
-        style: const TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.bold,
-          color: Colors.black54,
-          letterSpacing: 1,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDropdown(
-    List<String> items,
-    String current,
-    Function(String?) onChanged,
-  ) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: current,
-          isExpanded: true,
-          items: items.map((String value) {
-            return DropdownMenuItem<String>(value: value, child: Text(value));
-          }).toList(),
-          onChanged: onChanged,
-        ),
-      ),
-    );
-  }
+    ),
+  );
 }

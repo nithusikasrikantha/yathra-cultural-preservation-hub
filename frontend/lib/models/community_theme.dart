@@ -6,7 +6,7 @@ class CulturalTheme {
   final String imageUrl;
   final String category;
   final String description;
-  bool isJoined;
+  bool isFollowing;
   final List<ElderKnowledgePost> knowledgePosts;
 
   CulturalTheme({
@@ -17,7 +17,7 @@ class CulturalTheme {
     required this.imageUrl,
     required this.category,
     required this.description,
-    this.isJoined = false,
+    this.isFollowing = false,
     required this.knowledgePosts,
   });
 }
