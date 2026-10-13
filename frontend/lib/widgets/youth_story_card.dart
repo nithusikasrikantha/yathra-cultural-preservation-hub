@@ -1,9 +1,9 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-
 import '../models/story.dart';
 import '../services/youth_dummy_content_store.dart';
+import 'social_story_card.dart';
 
 class YouthStoryCard extends StatelessWidget {
   const YouthStoryCard({
@@ -16,7 +16,6 @@ class YouthStoryCard extends StatelessWidget {
     this.onLike,
     this.onComment,
   });
-
   final Story story;
   final VoidCallback onTap;
   final bool isBookmarked;
@@ -31,6 +30,17 @@ class YouthStoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (dummyMetadata == null) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: SocialStoryCard(
+          story: story,
+          onTap: onTap,
+          isBookmarked: isBookmarked,
+          onBookmark: onBookmark,
+        ),
+      );
+    }
     return Semantics(
       container: true,
       button: true,
@@ -61,13 +71,37 @@ class YouthStoryCard extends StatelessWidget {
                 children: [
                   _buildHeader(),
                   const SizedBox(height: 12),
+                  _StoryMedia(
+                    story: story,
+                    imageAssetPath: dummyMetadata?.imageAssetPath,
+                  ),
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEADCC9),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      story.category,
+                      style: const TextStyle(
+                        color: _primaryBrown,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   if (dummyMetadata != null) ...[
                     Text(
                       story.title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontSize: 16,
+                        fontFamily: 'Serif',
+                        fontSize: 21,
                         fontWeight: FontWeight.bold,
                         color: _primaryBrown,
                         height: 1.25,
@@ -76,8 +110,8 @@ class YouthStoryCard extends StatelessWidget {
                     const SizedBox(height: 8),
                   ],
                   Text(
-                    story.storyText,
-                    maxLines: 4,
+                    story.preview,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontSize: 14.5,
@@ -86,11 +120,35 @@ class YouthStoryCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  _StoryMedia(
-                    story: story,
-                    imageAssetPath: dummyMetadata?.imageAssetPath,
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 6,
+                    children: [
+                      Text(
+                        story.language,
+                        style: const TextStyle(
+                          color: Colors.black54,
+                          fontSize: 12,
+                        ),
+                      ),
+                      if (story.location?.isNotEmpty == true)
+                        Text(
+                          story.location!,
+                          style: const TextStyle(
+                            color: Colors.black54,
+                            fontSize: 12,
+                          ),
+                        ),
+                      Text(
+                        '${story.readingMinutes} min read',
+                        style: const TextStyle(
+                          color: Colors.black54,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 14),
+                  const Divider(),
                   _buildFooter(),
                 ],
               ),

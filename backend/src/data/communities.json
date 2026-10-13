@@ -1,0 +1,44 @@
+[
+  {
+    "id": "jaffna_cuisine",
+    "title": "Traditional Jaffna Cuisine",
+    "imageUrl": "https://assets.roar.media/Life/2017/04/Jaffna-food1.jpg?w=1200",
+    "category": "Food",
+    "description": "Preserving authentic Northern Sri Lankan recipes, palmyra delicacies, and traditional clay-pot cooking secrets passed down through generations."
+  },
+  {
+    "id": "kandyan_dance",
+    "title": "Kandyan Dance Traditions",
+    "imageUrl": "https://cdn.audleytravel.com/1400/1000/60/352521-kandyan-dancers-kandy.jpg",
+    "category": "Performing Arts",
+    "description": "Celebrating Ves dance rituals, drum rhythms, sacred temple dances, and the rich dance heritage of the Hill Country."
+  },
+  {
+    "id": "village_folk_songs",
+    "title": "Village Folk Songs",
+    "imageUrl": "https://s3.ap-southeast-1.amazonaws.com/cdn.sannasa.lk/media/3399/conversions/WhatsApp-Image-2024-08-05-at-03.24.57-w_1024.jpg",
+    "category": "Traditional Music",
+    "description": "Preserving paddy harvest chants, lullabies, boating songs, and oral folklore melodies sung across rural Sri Lankan villages."
+  },
+  {
+    "id": "northern_heritage_history",
+    "title": "Northern Heritage & Living History",
+    "imageUrl": "https://media-cdn.tripadvisor.com/media/attractions-splice-spp-720x480/0a/4c/7b/2a.jpg",
+    "category": "History",
+    "description": "Explore Jaffna temples, historic homes, inscriptions, local landmarks and the memories elders carry about how their communities changed over time."
+  },
+  {
+    "id": "tamil_dialects",
+    "title": "Tamil Dialects & Oral Expressions",
+    "imageUrl": "https://specials-images.forbesimg.com/imageserve/677ec972d1d7c86cf65676f3/A-woman-and-her-elderly-relative-engaging-in-an-intimate-chat-/960x0.jpg?fit=scale",
+    "category": "Local Dialects",
+    "description": "Collect regional words, sayings, pronunciation and everyday expressions, with elders explaining when and where each phrase is used."
+  },
+  {
+    "id": "home_garden_healing",
+    "title": "Home Gardens & Traditional Healing",
+    "imageUrl": "https://www.botanicgardens.gov.lk/wp-content/uploads/2021/10/3A8A0475.jpg",
+    "category": "Ayurveda & Healing",
+    "description": "Document traditional home-garden plants, preparation customs and family knowledge. Shared knowledge is for cultural learning, not medical advice."
+  }
+]
