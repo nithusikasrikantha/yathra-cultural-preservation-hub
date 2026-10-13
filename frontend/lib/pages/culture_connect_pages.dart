@@ -380,13 +380,12 @@ class _ChatPageState extends State<ChatPage> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
   List<Map<String, dynamic>> _messages = [];
+  List<String> _suggestedQuestions = [];
   String? _error;
   bool _sending = false;
-  String? _myId;
-  bool _consentYouth = false;
-  bool _consentElder = false;
   bool _assistantBusy = false;
-  bool get _isYouth => _myId != null && widget.connection.requesterId == _myId;
+  bool _usingQuestionFallback = false;
+  String? _myId;
   @override
   void initState() {
     super.initState();
@@ -408,239 +407,14 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _load() async {
     try {
       final m = await _service.getMessages(widget.connection.id);
-      final consent = await _service.getChatConsent(widget.connection.id);
       if (mounted) {
         setState(() {
           _messages = m;
-          _consentYouth = consent['youth'] == true;
-          _consentElder = consent['elder'] == true;
           _error = null;
         });
       }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
-    }
-  }
-
-  Future<void> _setConsent(bool consent) async {
-    try {
-      final value = await _service.setChatConsent(
-        widget.connection.id,
-        consent,
-      );
-      if (mounted)
-        setState(() {
-          _consentYouth = value['youth'] == true;
-          _consentElder = value['elder'] == true;
-        });
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              consent
-                  ? 'Your consent is saved. Both participants must consent before creating a draft.'
-                  : 'Your consent was withdrawn.',
-            ),
-          ),
-        );
-    } catch (e) {
-      if (mounted) _showChatError(e);
-    }
-  }
-
-  void _showChatError(Object e) => ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
-  );
-
-  Future<void> _suggestQuestions(String action) async {
-    if (_assistantBusy) return;
-    setState(() => _assistantBusy = true);
-    try {
-      List<String> questions;
-      var usingFallback = false;
-      try {
-        final response = await _service.askAssistant(
-          action,
-          widget.connection.id,
-          topic: widget.connection.communityName,
-        );
-        final result = Map<String, dynamic>.from(response['result'] as Map);
-        questions = (result['questions'] as List? ?? [])
-            .map((e) => e.toString())
-            .toList();
-      } catch (_) {
-        usingFallback = true;
-        final lastElderReply =
-            _messages.reversed
-                .firstWhere(
-                  (message) => message['sender']?.toString() != _myId,
-                  orElse: () => const {},
-                )['text']
-                ?.toString() ??
-            '';
-        questions = CultureAssistantFallback.questions(
-          topic: widget.connection.communityName,
-          answer: action == 'follow-up-questions' ? lastElderReply : '',
-        );
-      }
-      if (!mounted || questions.isEmpty) return;
-      await showModalBottomSheet<void>(
-        context: context,
-        builder: (sheetContext) => SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            shrinkWrap: true,
-            children: [
-              Text(
-                action == 'conversation-starters'
-                    ? 'Suggested Questions'
-                    : 'Follow-up Questions',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              if (usingFallback)
-                const Padding(
-                  padding: EdgeInsets.only(top: 6),
-                  child: Text(
-                    'AI service is unavailable. These are basic prompts based on your conversation.',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                ),
-              const SizedBox(height: 10),
-              for (final question in questions)
-                ListTile(
-                  leading: const Icon(Icons.auto_awesome),
-                  title: Text(question),
-                  onTap: () {
-                    _input.text = question;
-                    _input.selection = TextSelection.collapsed(
-                      offset: question.length,
-                    );
-                    Navigator.pop(sheetContext);
-                  },
-                ),
-            ],
-          ),
-        ),
-      );
-    } catch (e) {
-      if (mounted) _showChatError(e);
-    } finally {
-      if (mounted) setState(() => _assistantBusy = false);
-    }
-  }
-
-  Future<void> _createDraft() async {
-    if (!_isYouth || _assistantBusy) return;
-    if (_messages.isEmpty) {
-      _showChatError(
-        Exception('Start the conversation before creating a draft.'),
-      );
-      return;
-    }
-    if (!_consentYouth) {
-      await _setConsent(true);
-      return;
-    }
-    if (!_consentElder) {
-      _showChatError(
-        Exception('Waiting for the elder to consent to using this chat.'),
-      );
-      return;
-    }
-    setState(() => _assistantBusy = true);
-    try {
-      Map<String, dynamic> draft;
-      var usingFallback = false;
-      try {
-        final response = await _service.askAssistant(
-          'chat-to-story',
-          widget.connection.id,
-        );
-        draft = Map<String, dynamic>.from(response['result'] as Map);
-      } catch (_) {
-        usingFallback = true;
-        draft = CultureAssistantFallback.chatDraft(
-          topic: widget.connection.communityName,
-          messages: _messages,
-          currentUserId: _myId ?? '',
-        );
-      }
-      if (!mounted) return;
-      final useDraft = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: Text(
-            usingFallback ? 'Conversation Draft' : 'AI Draft Preview',
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (usingFallback)
-                  const Text(
-                    'AI service is unavailable. This draft uses only the messages in this chat.',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                Text(
-                  draft['title']?.toString() ?? '',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                Text(draft['description']?.toString() ?? ''),
-                const SizedBox(height: 12),
-                Text(draft['content']?.toString() ?? ''),
-                const SizedBox(height: 12),
-                Text(
-                  'Cultural significance: ${draft['culturalSignificance'] ?? ''}',
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Review every detail with the elder before sending for review.',
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Close'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Use in Workspace'),
-            ),
-          ],
-        ),
-      );
-      if (useDraft != true || !mounted) return;
-      final created = await _service.createWorkspaceItem(widget.connection.id);
-      final workspaceItem = Map<String, dynamic>.from(created['item'] as Map);
-      final workspaceItemId = workspaceItem['_id']?.toString();
-      await _service.saveWorkspace(
-        widget.connection.id,
-        workspaceItemId: workspaceItemId,
-        title: draft['title']?.toString() ?? '',
-        content: draft['content']?.toString() ?? '',
-        instructions: draft['description']?.toString() ?? '',
-        culturalSignificance:
-            draft['culturalSignificance']?.toString() ??
-            'To be confirmed by the elder.',
-      );
-      if (!mounted) return;
-      await Navigator.push(
-        context,
-        MaterialPageRoute<void>(
-          builder: (_) => WorkspaceEditorPage(
-            connection: widget.connection,
-            isElder: false,
-            workspaceItemId: workspaceItemId,
-          ),
-        ),
-      );
-    } catch (e) {
-      if (mounted) _showChatError(e);
-    } finally {
-      if (mounted) setState(() => _assistantBusy = false);
     }
   }
 
@@ -663,6 +437,75 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
+  Future<void> _suggestQuestions({required bool followUp}) async {
+    if (_assistantBusy) return;
+    if (followUp && _messages.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Start chatting first to get follow-up questions.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _assistantBusy = true;
+      _suggestedQuestions = [];
+    });
+    var usingFallback = false;
+    try {
+      List<String> questions;
+      try {
+        final response = await _service.askAssistant(
+          followUp ? 'follow-up-questions' : 'conversation-starters',
+          widget.connection.id,
+          topic: widget.connection.communityName.isNotEmpty
+              ? widget.connection.communityName
+              : widget.peer.profileInfo.interests.join(', '),
+        );
+        final result = Map<String, dynamic>.from(response['result'] as Map);
+        questions = (result['questions'] as List? ?? [])
+            .map((question) => question.toString().trim())
+            .where((question) => question.isNotEmpty)
+            .toList();
+        if (questions.isEmpty) throw Exception('No questions returned.');
+      } catch (_) {
+        usingFallback = true;
+        final latestElderMessage = _messages.lastWhere(
+          (message) => message['sender']?.toString() != _myId,
+          orElse: () => <String, dynamic>{},
+        );
+        questions = CultureAssistantFallback.questions(
+          topic: widget.connection.communityName.isNotEmpty
+              ? widget.connection.communityName
+              : widget.peer.profileInfo.interests.join(', '),
+          answer: followUp
+              ? latestElderMessage['text']?.toString() ?? ''
+              : '',
+        );
+      }
+      if (!mounted) return;
+      setState(() {
+        _suggestedQuestions = questions;
+        _usingQuestionFallback = usingFallback;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _assistantBusy = false);
+    }
+  }
+
+  void _useSuggestedQuestion(String question) {
+    _input
+      ..text = question
+      ..selection = TextSelection.collapsed(offset: question.length);
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: const Color(0xFFF8F3EA),
@@ -674,15 +517,7 @@ class _ChatPageState extends State<ChatPage> {
           Expanded(child: Text(widget.peer.name)),
         ],
       ),
-      actions: [
-        if (_isYouth)
-          TextButton.icon(
-            onPressed: _assistantBusy ? null : _createDraft,
-            icon: const Icon(Icons.auto_awesome, size: 18),
-            label: const Text('AI Draft'),
-          ),
-        IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
-      ],
+      actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh))],
     ),
     body: Column(
       children: [
@@ -729,18 +564,6 @@ class _ChatPageState extends State<ChatPage> {
                           ),
                         ),
                       ],
-                      if (_isYouth && !mine)
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: TextButton.icon(
-                            onPressed: _assistantBusy
-                                ? null
-                                : () =>
-                                      _suggestQuestions('follow-up-questions'),
-                            icon: const Icon(Icons.auto_awesome, size: 16),
-                            label: const Text('Ask Follow-up'),
-                          ),
-                        ),
                     ],
                   ),
                 ),
@@ -750,65 +573,103 @@ class _ChatPageState extends State<ChatPage> {
         ),
         SafeArea(
           top: false,
-          child: Padding(
-            padding: const EdgeInsets.all(10),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _consentYouth && _consentElder
-                            ? 'Both participants consented to chat draft use.'
-                            : 'Chat-to-draft requires both participants consent.',
-                        style: const TextStyle(fontSize: 12),
+          child: Material(
+            color: Colors.white,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: _assistantBusy
+                            ? null
+                            : () => _suggestQuestions(followUp: false),
+                        icon: const Icon(Icons.lightbulb_outline, size: 18),
+                        label: const Text('Suggest Questions'),
                       ),
-                    ),
-                    TextButton(
-                      onPressed: () => _setConsent(
-                        !(_isYouth ? _consentYouth : _consentElder),
+                      OutlinedButton.icon(
+                        onPressed: _assistantBusy || _messages.isEmpty
+                            ? null
+                            : () => _suggestQuestions(followUp: true),
+                        icon: const Icon(Icons.auto_awesome, size: 18),
+                        label: const Text('Follow-up Questions'),
                       ),
-                      child: Text(
-                        (_isYouth ? _consentYouth : _consentElder)
-                            ? 'Withdraw'
-                            : 'I Consent',
-                      ),
-                    ),
-                  ],
-                ),
-                if (_isYouth)
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: OutlinedButton.icon(
-                      onPressed: _assistantBusy
-                          ? null
-                          : () => _suggestQuestions('conversation-starters'),
-                      icon: const Icon(Icons.auto_awesome),
-                      label: Text(
-                        _assistantBusy ? 'Thinking...' : 'Suggest Questions',
-                      ),
-                    ),
+                    ],
                   ),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _input,
-                        minLines: 1,
-                        maxLines: 4,
-                        decoration: const InputDecoration(
-                          hintText: 'Type a message...',
+                  if (_assistantBusy)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: LinearProgressIndicator(minHeight: 2),
+                    ),
+                  if (_suggestedQuestions.isNotEmpty) ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _usingQuestionFallback
+                                ? 'Sample questions'
+                                : 'AI suggested questions',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF6B4226),
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          tooltip: 'Close suggestions',
+                          onPressed: () => setState(() {
+                            _suggestedQuestions = [];
+                          }),
+                          icon: const Icon(Icons.close, size: 18),
+                        ),
+                      ],
+                    ),
+                    SizedBox(
+                      height: 42,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _suggestedQuestions.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        itemBuilder: (context, index) => ActionChip(
+                          label: Text(
+                            _suggestedQuestions[index],
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onPressed: () => _useSuggestedQuestion(
+                            _suggestedQuestions[index],
+                          ),
                         ),
                       ),
                     ),
-                    IconButton(
-                      onPressed: _sending ? null : _send,
-                      icon: const Icon(Icons.send),
-                    ),
                   ],
-                ),
-              ],
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _input,
+                          minLines: 1,
+                          maxLines: 4,
+                          decoration: const InputDecoration(
+                            hintText: 'Type a message...',
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: _sending ? null : _send,
+                        icon: const Icon(Icons.send),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -1527,9 +1388,7 @@ class _WorkspaceEditorPageState extends State<WorkspaceEditorPage> {
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Published to YATHRA'),
-          content: const Text(
-            'The contribution is now available in Explore and Home.',
-          ),
+            content: const Text('The contribution is now available in Explore.'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
@@ -1845,7 +1704,7 @@ class _WorkspaceEditorPageState extends State<WorkspaceEditorPage> {
                           ),
                         if (_status == 'approved' && !widget.isElder)
                           const Text(
-                            'The elder approved this contribution. It will appear in Explore and Home after publishing.',
+                            'The elder approved this contribution. It will appear in Explore after publishing.',
                           ),
                         if (_status == 'changes_requested' && widget.isElder)
                           const Text(
@@ -1915,7 +1774,7 @@ class _WorkspaceStatusCard extends StatelessWidget {
                       : status == 'Approved'
                       ? (isElder
                             ? 'This contribution is approved and ready to publish.'
-                            : 'The elder approved this contribution. It will appear in Explore and Home after publishing.')
+                            : 'The elder approved this contribution. It will appear in Explore after publishing.')
                       : status == 'Changes Requested'
                       ? 'Review the elder note, update your content, and send it again.'
                       : status == 'Published'

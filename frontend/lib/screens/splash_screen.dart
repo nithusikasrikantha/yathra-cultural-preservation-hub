@@ -10,19 +10,20 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  static const _cream = Color(0xFFF8F1E4);
   bool _showArtwork = false;
 
   @override
   void initState() {
     super.initState();
-    // Let Android receive Flutter's first frame before decoding the large
-    // splash illustration. This avoids holding the launch window while the
-    // image decoder and first raster frame are warming up on slower devices.
-    Future<void>.delayed(const Duration(milliseconds: 900), () {
+    // Show the logo on the first frame; decode the larger illustration after
+    // Android has started rendering to avoid a blank or stalled launch.
+    Future<void>.delayed(const Duration(milliseconds: 450), () {
       if (!mounted) return;
       setState(() => _showArtwork = true);
     });
-    Future<void>.delayed(const Duration(milliseconds: 2400), () {
+    // Keep the brand screen visible long enough to register before onboarding.
+    Future<void>.delayed(const Duration(milliseconds: 5000), () {
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
@@ -33,18 +34,21 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
+    backgroundColor: _cream,
     body: Stack(
       fit: StackFit.expand,
       children: [
-        const ColoredBox(color: Color(0xFFF8F1E4)),
+        const ColoredBox(color: _cream),
         if (_showArtwork)
           AnimatedOpacity(
             opacity: 1,
-            duration: const Duration(milliseconds: 450),
+            duration: const Duration(milliseconds: 500),
             child: Image.asset(
-              'assets/images/onboarding/connection.png',
+              'assets/images/onboarding/yathra_splash.png',
               fit: BoxFit.cover,
+              alignment: Alignment.center,
               cacheWidth: 480,
+              errorBuilder: (_, _, _) => const ColoredBox(color: _cream),
             ),
           ),
         DecoratedBox(
@@ -53,92 +57,60 @@ class _SplashScreenState extends State<SplashScreen> {
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                const Color(0xFFF8F1E4).withValues(alpha: 0.5),
-                const Color(0xFFF8F1E4).withValues(alpha: 0.2),
-                const Color(0xFF2F1A10).withValues(alpha: 0.72),
+                _cream.withValues(alpha: 0.12),
+                Colors.transparent,
+                const Color(0xFF2F1A10).withValues(alpha: 0.45),
               ],
-              stops: const [0, 0.45, 1],
+              stops: const [0, 0.58, 1],
             ),
           ),
         ),
         SafeArea(
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const SizedBox(height: 24),
-              Column(
+              SizedBox(height: MediaQuery.sizeOf(context).height * 0.055),
+              const Column(
                 children: [
-                  Container(
-                    width: 76,
-                    height: 76,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFFBF3).withValues(alpha: 0.94),
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.12),
-                          blurRadius: 22,
-                          offset: const Offset(0, 8),
-                        ),
-                      ],
-                    ),
-                    child: const Icon(
-                      Icons.spa_rounded,
-                      color: Color(0xFF9D3D20),
-                      size: 42,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  const Text(
+                  Icon(Icons.spa_rounded, color: Color(0xFF9D3D20), size: 56),
+                  SizedBox(height: 5),
+                  Text(
                     'YATHRA',
                     style: TextStyle(
                       color: Color(0xFF542717),
                       fontFamily: 'Serif',
-                      fontSize: 30,
+                      fontSize: 34,
                       fontWeight: FontWeight.w800,
-                      letterSpacing: 4,
+                      letterSpacing: 3.5,
                     ),
                   ),
-                  const Text(
-                    'CULTURE • CONNECTION • CONTINUITY',
+                  SizedBox(height: 5),
+                  Text(
+                    'Preserving Our Roots',
                     style: TextStyle(
-                      color: Color(0xFF70452D),
-                      fontSize: 9,
-                      letterSpacing: 1.4,
-                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF3D261B),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Text(
+                    'Connecting Generations',
+                    style: TextStyle(
+                      color: Color(0xFF3D261B),
+                      fontSize: 13,
                     ),
                   ),
                 ],
               ),
+              const Spacer(),
               const Padding(
-                padding: EdgeInsets.only(bottom: 46),
-                child: Column(
-                  children: [
-                    Text(
-                      'Preserving our roots',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontFamily: 'Serif',
-                        fontSize: 25,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    SizedBox(height: 7),
-                    Text(
-                      'Connecting generations through living culture',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white70, fontSize: 13),
-                    ),
-                    SizedBox(height: 24),
-                    SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
+                padding: EdgeInsets.only(bottom: 30),
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.2,
+                    color: Colors.white,
+                  ),
                 ),
               ),
             ],

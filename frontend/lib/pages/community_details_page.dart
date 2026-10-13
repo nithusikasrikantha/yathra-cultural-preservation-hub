@@ -1,12 +1,8 @@
 import 'package:flutter/material.dart';
-import 'dart:async';
-
 import '../models/community_theme.dart';
-import '../models/connection_model.dart';
 import '../models/user_model.dart';
 import '../services/culture_connect_service.dart';
 import '../theme/app_theme.dart';
-import 'culture_connect_pages.dart';
 
 /// Reusable Community Details Page (Page 4 in the required flow)
 class CommunityDetailsPage extends StatefulWidget {
@@ -24,124 +20,33 @@ class _CommunityDetailsPageState extends State<CommunityDetailsPage> {
   static const Color _accentBrown = Color(0xFF6B4226);
   static const Color _lightTan = Color(0xFFEADCC9);
 
-  late bool _isJoined;
-  final _connectService = CultureConnectService();
-  List<User> _elders = [];
-  final Map<String, Connection> _connections = {};
-  bool _eldersLoading = false;
-  String? _eldersError;
-  final Set<String> _requesting = {};
-  Timer? _connectionRefresh;
+  late bool _isFollowing;
   int _selectedTabIndex = 1; // Default to 'Discussions' or 'About'
 
-  final List<String> _tabs = const ['About', 'Discussions', 'Elders', 'Photos'];
+  final List<String> _tabs = const ['About', 'Discussions', 'Photos'];
 
   @override
   void initState() {
     super.initState();
-    _isJoined = widget.theme.isJoined;
-    _connectionRefresh = Timer.periodic(const Duration(seconds: 15), (_) {
-      if (mounted && _selectedTabIndex == 2) _loadElders();
-    });
+    _isFollowing = widget.theme.isFollowing;
   }
 
-  @override
-  void dispose() {
-    _connectionRefresh?.cancel();
-    super.dispose();
-  }
-
-  void _toggleJoinCommunity() {
+  void _toggleFollowCommunity() {
     setState(() {
-      _isJoined = !_isJoined;
-      widget.theme.isJoined = _isJoined;
+      _isFollowing = !_isFollowing;
+      widget.theme.isFollowing = _isFollowing;
     });
 
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          _isJoined
-              ? 'You joined "${widget.theme.title}"!'
-              : 'You left "${widget.theme.title}".',
+          _isFollowing
+              ? 'You are following "${widget.theme.title}".'
+              : 'You unfollowed "${widget.theme.title}".',
         ),
         duration: const Duration(seconds: 2),
         backgroundColor: _accentBrown,
-      ),
-    );
-  }
-
-  Future<void> _loadElders() async {
-    if (_eldersLoading) return;
-    setState(() {
-      _eldersLoading = true;
-      _eldersError = null;
-    });
-    try {
-      final results = await Future.wait([
-        _connectService.getElders(),
-        _connectService.getConnections(),
-      ]);
-      if (!mounted) return;
-      final connections = results[1] as List<Connection>;
-      setState(() {
-        _elders = results[0] as List<User>;
-        _connections
-          ..clear()
-          ..addEntries(
-            connections.map(
-              (connection) => MapEntry(connection.receiverId, connection),
-            ),
-          );
-        _eldersLoading = false;
-      });
-    } catch (error) {
-      if (mounted) {
-        setState(() {
-          _eldersError = error.toString().replaceFirst('Exception: ', '');
-          _eldersLoading = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _sendRequest(User elder) async {
-    setState(() => _requesting.add(elder.id));
-    try {
-      final connection = await _connectService.request(
-        elder.id,
-        widget.theme.id,
-        widget.theme.title,
-      );
-      if (!mounted) return;
-      setState(() => _connections[elder.id] = connection);
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(error.toString().replaceFirst('Exception: ', '')),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _requesting.remove(elder.id));
-    }
-  }
-
-  void _openChat(Connection connection, User elder) {
-    Navigator.of(context)
-        .push(
-          MaterialPageRoute<void>(
-            builder: (_) => ChatPage(connection: connection, peer: elder),
-          ),
-        )
-        .then((_) => _loadElders());
-  }
-
-  void _openWorkspace(Connection connection) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => WorkspacePage(connection: connection, isElder: false),
       ),
     );
   }
@@ -184,49 +89,16 @@ class _CommunityDetailsPageState extends State<CommunityDetailsPage> {
 
               const SizedBox(height: 20),
 
-              // Navigation Tabs (About, Discussions, Elders, Photos)
+              // Navigation Tabs (About, Discussions, Photos)
               _buildTabsRow(),
 
               const SizedBox(height: 24),
 
-              if (_selectedTabIndex == 2) ...[
-                Text(
-                  'Elders in this Community',
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: _primaryBrown,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                if (_eldersLoading)
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(28),
-                      child: CircularProgressIndicator(),
-                    ),
-                  )
-                else if (_eldersError != null)
-                  Center(
-                    child: Column(
-                      children: [
-                        Text(_eldersError!),
-                        TextButton(
-                          onPressed: _loadElders,
-                          child: const Text('Retry'),
-                        ),
-                      ],
-                    ),
-                  )
-                else if (_elders.isEmpty)
-                  _buildEldersEmptyState()
-                else
-                  ..._elders.map(_buildElderRow),
-              ] else ...[
+              ...[
                 Text(
                   _selectedTabIndex == 0
                       ? 'About this Community'
-                      : _selectedTabIndex == 3
+                      : _selectedTabIndex == 2
                       ? 'Community Photos'
                       : 'Knowledge Shared by Elders',
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
@@ -241,7 +113,7 @@ class _CommunityDetailsPageState extends State<CommunityDetailsPage> {
                     widget.theme.description,
                     style: const TextStyle(fontSize: 15, height: 1.5),
                   )
-                else if (_selectedTabIndex == 3)
+                else if (_selectedTabIndex == 2)
                   _buildEmptyState()
                 else if (widget.theme.knowledgePosts.isEmpty)
                   _buildEmptyState()
@@ -254,6 +126,7 @@ class _CommunityDetailsPageState extends State<CommunityDetailsPage> {
                         const SizedBox(height: 16),
                     itemBuilder: (context, index) => _ElderKnowledgeCard(
                       post: widget.theme.knowledgePosts[index],
+                      theme: widget.theme,
                     ),
                   ),
               ],
@@ -285,7 +158,7 @@ class _CommunityDetailsPageState extends State<CommunityDetailsPage> {
 
         // Member/Elder Count Information
         Text(
-          '${widget.theme.membersCount}  •  ${widget.theme.activeEldersCount}',
+          '${widget.theme.membersCount}  â€¢  ${widget.theme.activeEldersCount}',
           style: TextStyle(
             color: _primaryBrown.withValues(alpha: 0.75),
             fontSize: 14,
@@ -295,31 +168,31 @@ class _CommunityDetailsPageState extends State<CommunityDetailsPage> {
 
         const SizedBox(height: 16),
 
-        // Join Community Button
+        // Follow Community Button
         SizedBox(
           width: double.infinity,
           height: 48,
           child: ElevatedButton.icon(
-            onPressed: _toggleJoinCommunity,
+            onPressed: _toggleFollowCommunity,
             icon: Icon(
-              _isJoined ? Icons.check : Icons.person_add_outlined,
-              color: _isJoined ? _primaryBrown : Colors.white,
+              _isFollowing ? Icons.check : Icons.person_add_outlined,
+              color: _isFollowing ? _primaryBrown : Colors.white,
               size: 20,
             ),
             label: Text(
-              _isJoined ? 'Joined' : 'Join Community',
+              _isFollowing ? 'Following' : 'Follow',
               style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.bold,
-                color: _isJoined ? _primaryBrown : Colors.white,
+                color: _isFollowing ? _primaryBrown : Colors.white,
               ),
             ),
             style: ElevatedButton.styleFrom(
-              backgroundColor: _isJoined ? _lightTan : _primaryBrown,
-              elevation: _isJoined ? 0 : 2,
+              backgroundColor: _isFollowing ? _lightTan : _primaryBrown,
+              elevation: _isFollowing ? 0 : 2,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
-                side: _isJoined
+                side: _isFollowing
                     ? const BorderSide(color: _accentBrown, width: 1.2)
                     : BorderSide.none,
               ),
@@ -346,9 +219,6 @@ class _CommunityDetailsPageState extends State<CommunityDetailsPage> {
               setState(() {
                 _selectedTabIndex = index;
               });
-              if (index == 2) {
-                _loadElders();
-              }
             },
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
@@ -373,101 +243,6 @@ class _CommunityDetailsPageState extends State<CommunityDetailsPage> {
             ),
           );
         }),
-      ),
-    );
-  }
-
-  Widget _buildEldersEmptyState() => Container(
-    width: double.infinity,
-    padding: const EdgeInsets.all(24),
-    decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: 0.8),
-      borderRadius: BorderRadius.circular(16),
-    ),
-    child: const Text(
-      'No elders are listed in this community yet.',
-      textAlign: TextAlign.center,
-    ),
-  );
-
-  Widget _buildElderRow(User elder) {
-    final connection = _connections[elder.id];
-    final status = connection?.status;
-    final subtitle = elder.profileInfo.bio?.trim().isNotEmpty == true
-        ? elder.profileInfo.bio!.trim()
-        : elder.profileInfo.interests.isNotEmpty
-        ? elder.profileInfo.interests.join(' • ')
-        : 'Community elder';
-    Widget action;
-    if (status == 'accepted' && connection != null) {
-      action = Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            tooltip: 'Message',
-            onPressed: () => _openChat(connection, elder),
-            icon: const Icon(Icons.chat_bubble_outline, color: _primaryBrown),
-          ),
-          IconButton(
-            tooltip: 'Collaborative workspace',
-            onPressed: () => _openWorkspace(connection),
-            icon: const Icon(Icons.edit_note, color: _primaryBrown),
-          ),
-        ],
-      );
-    } else if (status == 'pending') {
-      action = OutlinedButton(onPressed: null, child: const Text('Pending'));
-    } else {
-      action = OutlinedButton(
-        onPressed: _requesting.contains(elder.id)
-            ? null
-            : () => _sendRequest(elder),
-        child: Text(_requesting.contains(elder.id) ? 'Sending…' : 'Connect'),
-      );
-    }
-    return Card(
-      color: Colors.white,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(
-          children: [
-            CircleAvatar(
-              backgroundColor: _lightTan,
-              backgroundImage: elder.profileInfo.avatar == null
-                  ? null
-                  : NetworkImage(elder.profileInfo.avatar!),
-              child: elder.profileInfo.avatar == null
-                  ? const Icon(Icons.person, color: _primaryBrown)
-                  : null,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    elder.name,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: _primaryBrown,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    subtitle,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: _primaryBrown.withValues(alpha: .7),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            action,
-          ],
-        ),
       ),
     );
   }
@@ -501,8 +276,9 @@ class _CommunityDetailsPageState extends State<CommunityDetailsPage> {
 /// Card component representing individual Elder-shared knowledge content
 class _ElderKnowledgeCard extends StatefulWidget {
   final ElderKnowledgePost post;
+  final CulturalTheme theme;
 
-  const _ElderKnowledgeCard({required this.post});
+  const _ElderKnowledgeCard({required this.post, required this.theme});
 
   @override
   State<_ElderKnowledgeCard> createState() => _ElderKnowledgeCardState();
@@ -510,15 +286,85 @@ class _ElderKnowledgeCard extends StatefulWidget {
 
 class _ElderKnowledgeCardState extends State<_ElderKnowledgeCard> {
   static const Color _primaryBrown = Color(0xFF4A2C1A);
+  final CultureConnectService _connectService = CultureConnectService();
 
   late bool _isLiked;
   late int _likesCount;
+  bool _connecting = false;
+  String _connectLabel = 'Connect';
 
   @override
   void initState() {
     super.initState();
     _isLiked = widget.post.isLiked;
     _likesCount = widget.post.likesCount;
+    if (widget.post.isConnected) _connectLabel = 'Connected';
+  }
+
+  Future<void> _connectToElder() async {
+    if (_connecting || _connectLabel != 'Connect') return;
+    setState(() => _connecting = true);
+    try {
+      final elders = await _connectService.getElders();
+      User? elder;
+      for (final candidate in elders) {
+        if (candidate.name.trim().toLowerCase() ==
+            widget.post.elderName.trim().toLowerCase()) {
+          elder = candidate;
+          break;
+        }
+      }
+      final matchedElder = elder;
+      if (matchedElder == null) {
+        throw Exception(
+          'This community profile is a sample. Find an active elder in Explore to connect.',
+        );
+      }
+
+      final connections = await _connectService.getConnections();
+      final existing = connections.where(
+        (connection) => connection.receiverId == matchedElder.id,
+      );
+      if (existing.isNotEmpty) {
+        final status = existing.first.status;
+        if (mounted) {
+          setState(() {
+            _connectLabel = status == 'accepted' ? 'Connected' : 'Requested';
+            widget.post.isConnected = status == 'accepted';
+          });
+        }
+        return;
+      }
+
+      final connection = await _connectService.request(
+        matchedElder.id,
+        widget.theme.id,
+        widget.theme.title,
+      );
+      if (mounted) {
+        setState(() {
+          _connectLabel = connection.status == 'accepted'
+              ? 'Connected'
+              : 'Requested';
+          widget.post.isConnected = connection.status == 'accepted';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Connection request sent to ${matchedElder.name}.'),
+          ),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(error.toString().replaceFirst('Exception: ', '')),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _connecting = false);
+    }
   }
 
   void _toggleLike() {
@@ -606,6 +452,29 @@ class _ElderKnowledgeCardState extends State<_ElderKnowledgeCard> {
                     ),
                   ],
                 ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton(
+                onPressed: _connecting || _connectLabel != 'Connect'
+                    ? null
+                    : _connectToElder,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _primaryBrown,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  minimumSize: const Size(74, 34),
+                  visualDensity: VisualDensity.compact,
+                  side: const BorderSide(color: _primaryBrown),
+                ),
+                child: _connecting
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(
+                        _connectLabel,
+                        style: const TextStyle(fontSize: 12),
+                      ),
               ),
             ],
           ),

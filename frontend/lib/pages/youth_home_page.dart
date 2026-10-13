@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../models/story.dart';
-import '../services/bookmark_service.dart';
-import '../services/published_content_signal.dart';
-import '../services/story_service.dart';
 import '../services/youth_dummy_content_store.dart';
 import '../widgets/youth_story_card.dart';
 import 'culture_connect_pages.dart';
@@ -33,29 +30,21 @@ class _YouthHomePageState extends State<YouthHomePage> {
   static const Color _accentBrown = Color(0xFF6B4226);
   static const Color _cardBackground = Color(0xFFFFFDF8);
 
-  final StoryService _storyService = const StoryService();
-  final BookmarkService _bookmarkService = BookmarkService.instance;
   final YouthDummyContentStore _dummyStore = YouthDummyContentStore.instance;
   List<Story> _stories = const [];
   bool _showingDummyStories = false;
   bool _isLoading = true;
-  bool _bookmarksReady = false;
-  String? _error;
 
   @override
   void initState() {
     super.initState();
-    _bookmarkService.addListener(_onBookmarksChanged);
     _dummyStore.addListener(_onBookmarksChanged);
-    PublishedContentSignal.revision.addListener(_load);
     _load();
   }
 
   @override
   void dispose() {
-    _bookmarkService.removeListener(_onBookmarksChanged);
     _dummyStore.removeListener(_onBookmarksChanged);
-    PublishedContentSignal.revision.removeListener(_load);
     super.dispose();
   }
 
@@ -64,45 +53,15 @@ class _YouthHomePageState extends State<YouthHomePage> {
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
     setState(() {
-      _isLoading = true;
-      _error = null;
+      _stories = _dummyStore.stories;
+      _showingDummyStories = true;
+      _isLoading = false;
     });
-    try {
-      final page = await _storyService.fetchStories(page: 1, limit: 4);
-      if (page.items.isNotEmpty) {
-        await _bookmarkService.load();
-      }
-      if (!mounted) return;
-      setState(() {
-        _bookmarksReady = page.items.isNotEmpty;
-        _showingDummyStories = page.items.isEmpty;
-        _stories = page.items.isEmpty ? _dummyStore.stories : page.items;
-        _isLoading = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _error = 'Recent cultural stories could not be loaded.';
-        _isLoading = false;
-      });
-    }
   }
 
-  Future<void> _toggleBookmark(Story story) async {
-    if (_dummyStore.isDummyId(story.id)) {
-      _dummyStore.toggleBookmark(story.id);
-      return;
-    }
-    try {
-      await _bookmarkService.toggle(story.id);
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('The bookmark could not be updated.')),
-      );
-    }
-  }
+  void _toggleBookmark(Story story) => _dummyStore.toggleBookmark(story.id);
 
   void _openStory(Story story) {
     Navigator.of(context).push(
@@ -380,7 +339,6 @@ class _YouthHomePageState extends State<YouthHomePage> {
         child: Center(child: CircularProgressIndicator(color: _accentBrown)),
       );
     }
-    if (_error != null) return _MessageCard(message: _error!, onRetry: _load);
     if (_stories.isEmpty) {
       return const _MessageCard(
         message: 'No cultural stories have been shared yet.',
@@ -395,12 +353,8 @@ class _YouthHomePageState extends State<YouthHomePage> {
                 ? _dummyStore.metadataFor(story.id)
                 : null,
             onTap: () => _openStory(story),
-            isBookmarked: _showingDummyStories
-                ? _dummyStore.isBookmarked(story.id)
-                : _bookmarksReady && _bookmarkService.isBookmarked(story.id),
-            onBookmark: _showingDummyStories || _bookmarksReady
-                ? () => _toggleBookmark(story)
-                : null,
+            isBookmarked: _dummyStore.isBookmarked(story.id),
+            onBookmark: () => _toggleBookmark(story),
             onLike: _showingDummyStories
                 ? () => _dummyStore.toggleLike(story.id)
                 : null,

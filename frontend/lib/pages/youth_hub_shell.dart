@@ -79,7 +79,7 @@ class _YouthHubShellState extends State<YouthHubShell> {
                   onExplore: () => _selectTab(1),
                   onProfile: () => _selectTab(3),
                 ),
-          const ExplorePage(),
+          ExplorePage(canConnect: !isElder),
           CulturalMapPage(userRole: _role),
           isElder
               ? ElderProfilePage(userName: _name)

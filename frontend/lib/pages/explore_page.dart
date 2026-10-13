@@ -3,7 +3,10 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../models/community_theme.dart';
+import '../models/connection_model.dart';
 import '../models/story.dart';
+import '../models/user_model.dart';
+import '../services/culture_connect_service.dart';
 import '../services/published_content_signal.dart';
 import '../services/story_service.dart';
 import '../theme/app_theme.dart';
@@ -19,7 +22,9 @@ String _fallbackArt(String category) => switch (category.toLowerCase()) {
 
 /// Explore Page (Page 2 in the required flow)
 class ExplorePage extends StatefulWidget {
-  const ExplorePage({super.key});
+  const ExplorePage({super.key, this.canConnect = true});
+
+  final bool canConnect;
 
   @override
   State<ExplorePage> createState() => _ExplorePageState();
@@ -32,9 +37,15 @@ class _ExplorePageState extends State<ExplorePage> {
 
   final TextEditingController _searchController = TextEditingController();
   final StoryService _storyService = const StoryService();
+  final CultureConnectService _connectService = CultureConnectService();
   final List<CulturalTheme> _themes = MockCulturalData.getPopularThemes();
   final List<CategoryItem> _categories = MockCulturalData.getCategories();
   List<Story> _publishedStories = const [];
+  List<User> _elders = const [];
+  final Map<String, Connection> _connections = {};
+  final Set<String> _requestingElders = {};
+  bool _eldersLoading = true;
+  String? _eldersError;
   bool _storiesLoading = true;
 
   @override
@@ -42,6 +53,54 @@ class _ExplorePageState extends State<ExplorePage> {
     super.initState();
     PublishedContentSignal.revision.addListener(_reloadPublishedStories);
     _loadPublishedStories();
+    _loadElders();
+  }
+
+  Future<void> _loadElders() async {
+    setState(() => _eldersLoading = true);
+    try {
+      final elders = await _connectService.getElders();
+      final connections = await _connectService.getConnections();
+      if (!mounted) return;
+      setState(() {
+        _elders = elders;
+        _connections
+          ..clear()
+          ..addEntries(
+            connections.map(
+              (connection) => MapEntry(connection.receiverId, connection),
+            ),
+          );
+        _eldersLoading = false;
+        _eldersError = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _eldersLoading = false;
+        _eldersError = error.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  Future<void> _connectWithElder(User elder) async {
+    if (_requestingElders.contains(elder.id)) return;
+    setState(() => _requestingElders.add(elder.id));
+    try {
+      final connection = await _connectService.request(elder.id, '', '');
+      if (!mounted) return;
+      setState(() => _connections[elder.id] = connection);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(error.toString().replaceFirst('Exception: ', '')),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _requestingElders.remove(elder.id));
+    }
   }
 
   Future<void> _loadPublishedStories() async {
@@ -98,6 +157,12 @@ class _ExplorePageState extends State<ExplorePage> {
     }).toList();
     final visibleCategories = _categories.where((category) {
       final searchable = '${category.title} ${category.subtitle}'.toLowerCase();
+      return query.isEmpty || searchable.contains(query);
+    }).toList();
+    final visibleElders = _elders.where((elder) {
+      final searchable =
+          '${elder.name} ${elder.profileInfo.bio ?? ''} ${elder.profileInfo.interests.join(' ')}'
+              .toLowerCase();
       return query.isEmpty || searchable.contains(query);
     }).toList();
     return Scaffold(
@@ -253,11 +318,157 @@ class _ExplorePageState extends State<ExplorePage> {
               ),
 
               const SizedBox(height: 24),
+              _buildEldersSection(visibleElders),
+
+              const SizedBox(height: 24),
               _buildPublishedStoriesSection(),
 
               const SizedBox(height: 24),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEldersSection(List<User> elders) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text(
+        'Connect with Elders',
+        style: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+          color: _primaryBrown,
+        ),
+      ),
+      const SizedBox(height: 4),
+      const Text(
+        'Meet the people preserving our traditions.',
+        style: TextStyle(fontSize: 12.5, color: Color(0xFF806D61)),
+      ),
+      const SizedBox(height: 12),
+      if (_eldersLoading)
+        const Center(
+          child: Padding(
+            padding: EdgeInsets.all(18),
+            child: CircularProgressIndicator(),
+          ),
+        )
+      else if (_eldersError != null)
+        Card(
+          color: Colors.white,
+          child: ListTile(
+            title: const Text('Could not load elders.'),
+            subtitle: Text(_eldersError!, maxLines: 2, overflow: TextOverflow.ellipsis),
+            trailing: IconButton(
+              onPressed: _loadElders,
+              icon: const Icon(Icons.refresh_rounded),
+            ),
+          ),
+        )
+      else if (elders.isEmpty)
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: const Text('Elder profiles will appear here.'),
+        )
+      else
+        ...elders.map(_buildElderCard),
+    ],
+  );
+
+  Widget _buildElderCard(User elder) {
+    final connection = _connections[elder.id];
+    final isPending = connection?.status == 'pending';
+    final isConnected = connection?.status == 'accepted';
+    final subtitle = elder.profileInfo.bio?.trim().isNotEmpty == true
+        ? elder.profileInfo.bio!.trim()
+        : elder.profileInfo.interests.isNotEmpty
+        ? elder.profileInfo.interests.join(' • ')
+        : elder.profileInfo.location?.trim().isNotEmpty == true
+        ? elder.profileInfo.location!.trim()
+        : 'Community elder';
+
+    return Card(
+      color: Colors.white,
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: const Color(0xFFEADCC9),
+              backgroundImage: elder.profileInfo.avatar?.isNotEmpty == true
+                  ? NetworkImage(elder.profileInfo.avatar!)
+                  : null,
+              child: elder.profileInfo.avatar?.isNotEmpty == true
+                  ? null
+                  : const Icon(Icons.person_rounded, color: _primaryBrown),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    elder.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: _primaryBrown,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF806D61),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (widget.canConnect) ...[
+              const SizedBox(width: 8),
+              SizedBox(
+                height: 36,
+                child: OutlinedButton(
+                  onPressed: isPending || isConnected ||
+                          _requestingElders.contains(elder.id)
+                      ? null
+                      : () => _connectWithElder(elder),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 11),
+                    foregroundColor: _primaryBrown,
+                    side: const BorderSide(color: Color(0xFFB98D69)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: Text(
+                    _requestingElders.contains(elder.id)
+                        ? 'Sending'
+                        : isConnected
+                        ? 'Connected'
+                        : isPending
+                        ? 'Pending'
+                        : 'Connect',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
