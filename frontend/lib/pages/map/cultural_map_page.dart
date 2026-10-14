@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
-import '../../data/cultural_map_dummy_data.dart';
 import '../../models/cultural_place.dart';
+import '../../services/cultural_place_bookmark_service.dart';
+import '../../services/cultural_place_service.dart';
+import '../../services/location_service.dart';
 import '../../widgets/map/cultural_map_widgets.dart';
 import 'cultural_map_search_page.dart';
 import 'cultural_place_detail_page.dart';
@@ -23,6 +26,10 @@ class _CulturalMapPageState extends State<CulturalMapPage>
   static const _initialZoom = 6.8;
 
   final MapController _mapController = MapController();
+  final CulturalPlaceService _placeService = CulturalPlaceService();
+  final LocationService _locationService = const LocationService();
+  final CulturalPlaceBookmarkService _savedPlaceService =
+      CulturalPlaceBookmarkService.instance;
   AnimationController? _cameraAnimationController;
   bool _mapReady = false;
   CulturalPlaceCategory? _quickCategory;
@@ -32,11 +39,14 @@ class _CulturalMapPageState extends State<CulturalMapPage>
   String _language = 'All';
   bool _withStories = false;
   bool _nearbyOnly = false;
+  bool _showAccessiblePlaceList = false;
   bool _isLoading = true;
   bool _hasError = false;
   bool _locationUnavailable = false;
   CulturalPlace? _selectedPlace;
   CulturalRegion? _selectedRegion;
+  List<CulturalPlace> _places = const [];
+  Position? _currentPosition;
   final Set<String> _locallySavedPlaceIds = {};
 
   bool get _canSavePlaces => widget.userRole != 'elder';
@@ -50,8 +60,9 @@ class _CulturalMapPageState extends State<CulturalMapPage>
       _nearbyOnly;
 
   List<CulturalPlace> get _visiblePlaces {
-    return CulturalMapDummyData.places
+    final visible = _places
         .where((place) {
+          if (!_hasValidCoordinates(place)) return false;
           if (_quickCategory != null &&
               !place.categories.contains(_quickCategory)) {
             return false;
@@ -66,12 +77,58 @@ class _CulturalMapPageState extends State<CulturalMapPage>
             return false;
           }
           if (_withStories && place.storyCount == 0) return false;
-          if (_nearbyOnly && place.district != 'Jaffna') return false;
+          if (_nearbyOnly && _currentPosition == null) return false;
           if (_selectedRegion != null &&
+              place.region != _selectedRegion!.name &&
               place.district != _selectedRegion!.name) {
             return false;
           }
           return true;
+        })
+        .toList(growable: false);
+    if (_nearbyOnly && _currentPosition != null) {
+      visible.sort(
+        (first, second) => _distanceTo(first).compareTo(_distanceTo(second)),
+      );
+    }
+    return visible;
+  }
+
+  bool _hasValidCoordinates(CulturalPlace place) =>
+      place.latitude >= -90 &&
+      place.latitude <= 90 &&
+      place.longitude >= -180 &&
+      place.longitude <= 180 &&
+      !(place.latitude == 0 && place.longitude == 0);
+
+  double _distanceTo(CulturalPlace place) => Geolocator.distanceBetween(
+    _currentPosition!.latitude,
+    _currentPosition!.longitude,
+    place.latitude,
+    place.longitude,
+  );
+
+  List<CulturalRegion> get _regions {
+    final grouped = <String, List<CulturalPlace>>{};
+    for (final place in _places) {
+      final name = place.region.trim().isEmpty ? place.district : place.region;
+      grouped.putIfAbsent(name, () => []).add(place);
+    }
+    return grouped.entries
+        .map((entry) {
+          final places = entry.value;
+          final first = places.first;
+          return CulturalRegion(
+            name: entry.key,
+            province: first.province,
+            storyCount: places.fold(0, (sum, place) => sum + place.storyCount),
+            latitude:
+                places.fold<double>(0, (sum, place) => sum + place.latitude) /
+                places.length,
+            longitude:
+                places.fold<double>(0, (sum, place) => sum + place.longitude) /
+                places.length,
+          );
         })
         .toList(growable: false);
   }
@@ -79,14 +136,63 @@ class _CulturalMapPageState extends State<CulturalMapPage>
   @override
   void initState() {
     super.initState();
+    _savedPlaceService.addListener(_handleSavedPlacesChanged);
     _loadPlaces();
+    _loadSavedPlaces();
   }
 
   @override
   void dispose() {
     _cameraAnimationController?.dispose();
     _mapController.dispose();
+    _savedPlaceService.removeListener(_handleSavedPlacesChanged);
     super.dispose();
+  }
+
+  Future<void> _loadSavedPlaces() async {
+    try {
+      await _savedPlaceService.load();
+      if (!mounted) return;
+      setState(() {
+        _locallySavedPlaceIds
+          ..clear()
+          ..addAll(_savedPlaceService.placeIds);
+      });
+    } catch (_) {
+      // The map remains usable when local storage is unavailable.
+    }
+  }
+
+  void _handleSavedPlacesChanged() {
+    if (!mounted) return;
+    setState(() {
+      _locallySavedPlaceIds
+        ..clear()
+        ..addAll(_savedPlaceService.placeIds);
+    });
+  }
+
+  Future<void> _toggleSavedPlace(CulturalPlace place) async {
+    if (!_canSavePlaces) return;
+    final wasSaved = _locallySavedPlaceIds.contains(place.id);
+    setState(() {
+      wasSaved
+          ? _locallySavedPlaceIds.remove(place.id)
+          : _locallySavedPlaceIds.add(place.id);
+    });
+    try {
+      await _savedPlaceService.toggle(place.id);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        wasSaved
+            ? _locallySavedPlaceIds.add(place.id)
+            : _locallySavedPlaceIds.remove(place.id);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Saved place could not be updated.')),
+      );
+    }
   }
 
   void _animateMapTo({
@@ -137,9 +243,12 @@ class _CulturalMapPageState extends State<CulturalMapPage>
       _hasError = false;
     });
     try {
-      await Future<void>.delayed(const Duration(milliseconds: 350));
+      final page = await _placeService.fetchPlaces(limit: 100);
       if (!mounted) return;
-      setState(() => _isLoading = false);
+      setState(() {
+        _places = page.items;
+        _isLoading = false;
+      });
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -165,7 +274,7 @@ class _CulturalMapPageState extends State<CulturalMapPage>
 
   Future<void> _openSearch() async {
     final result = await Navigator.of(context).push<CulturalPlace>(
-      MaterialPageRoute(builder: (_) => const CulturalMapSearchPage()),
+      MaterialPageRoute(builder: (_) => CulturalMapSearchPage(places: _places)),
     );
     if (!mounted || result == null) return;
     setState(() {
@@ -193,6 +302,7 @@ class _CulturalMapPageState extends State<CulturalMapPage>
           place: place,
           userRole: widget.userRole,
           initiallySaved: _locallySavedPlaceIds.contains(place.id),
+          userLocation: _currentPosition,
         ),
       ),
     );
@@ -205,13 +315,11 @@ class _CulturalMapPageState extends State<CulturalMapPage>
         zoom: 13,
       );
     } else if (result is bool && _canSavePlaces) {
-      setState(() {
-        if (result) {
-          _locallySavedPlaceIds.add(place.id);
-        } else {
-          _locallySavedPlaceIds.remove(place.id);
-        }
-      });
+      setState(
+        () => result
+            ? _locallySavedPlaceIds.add(place.id)
+            : _locallySavedPlaceIds.remove(place.id),
+      );
     }
   }
 
@@ -247,7 +355,7 @@ class _CulturalMapPageState extends State<CulturalMapPage>
       _selectedPlace = null;
     });
     if (result.district case final district?) {
-      final districtPlaces = CulturalMapDummyData.places.where(
+      final districtPlaces = _places.where(
         (place) => place.district == district,
       );
       if (districtPlaces.isNotEmpty) {
@@ -258,6 +366,10 @@ class _CulturalMapPageState extends State<CulturalMapPage>
           zoom: 11.5,
         );
       }
+    }
+    if (result.nearbyOnly && _currentPosition == null) {
+      final located = await _obtainLocation();
+      if (!located && mounted) setState(() => _nearbyOnly = false);
     }
   }
 
@@ -329,14 +441,46 @@ class _CulturalMapPageState extends State<CulturalMapPage>
     );
     if (!mounted || allow != true) return;
 
+    await _obtainLocation();
+  }
+
+  Future<bool> _obtainLocation() async {
+    try {
+      final position = await _locationService.getCurrentPosition();
+      if (!mounted) return false;
+      setState(() {
+        _currentPosition = position;
+        _locationUnavailable = false;
+        _nearbyOnly = true;
+      });
+      _animateMapTo(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        zoom: 10.5,
+      );
+      return true;
+    } on LocationServiceDisabledException {
+      _showLocationError('Location services are turned off.');
+    } on LocationPermissionDeniedForeverException {
+      _showLocationError(
+        'Location permission is permanently denied. Enable it in Settings.',
+      );
+    } on LocationPermissionDeniedException {
+      _showLocationError('Location permission was denied.');
+    } on LocationUnavailableException {
+      _showLocationError('Current location could not be determined.');
+    } catch (_) {
+      _showLocationError('Current location is temporarily unavailable.');
+    }
+    return false;
+  }
+
+  void _showLocationError(String message) {
+    if (!mounted) return;
     setState(() => _locationUnavailable = true);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Location is not connected in this preview. You can keep exploring the map.',
-        ),
-      ),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -379,10 +523,10 @@ class _CulturalMapPageState extends State<CulturalMapPage>
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 18),
         scrollDirection: Axis.horizontal,
-        itemCount: CulturalMapDummyData.regions.length,
+        itemCount: _regions.length,
         separatorBuilder: (_, _) => const SizedBox(width: 9),
         itemBuilder: (context, index) {
-          final region = CulturalMapDummyData.regions[index];
+          final region = _regions[index];
           final selected = _selectedRegion?.name == region.name;
           return InkWell(
             onTap: () {
@@ -489,74 +633,143 @@ class _CulturalMapPageState extends State<CulturalMapPage>
       );
     }
 
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: _CulturalMapCanvas(
-              controller: _mapController,
-              places: _visiblePlaces,
-              selectedPlace: _selectedPlace,
-              onMapReady: () => _mapReady = true,
-              onSelect: (place) => setState(() => _selectedPlace = place),
-            ),
-          ),
-          Positioned(
-            top: 47,
-            right: 14,
-            child: FloatingActionButton.small(
-              heroTag: 'cultural-map-near-me',
-              onPressed: _showNearMe,
-              tooltip: 'Find places near me',
-              backgroundColor: mapCardColor,
-              foregroundColor: mapAccentBrown,
-              child: Icon(
-                _locationUnavailable
-                    ? Icons.location_disabled_outlined
-                    : Icons.near_me_outlined,
-              ),
-            ),
-          ),
-          Positioned(
-            left: 14,
-            top: 14,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: mapCardColor.withValues(alpha: 0.94),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                '${_visiblePlaces.length} cultural places',
-                style: const TextStyle(
-                  color: mapPrimaryBrown,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
+    return Column(
+      children: [
+        Expanded(
+          child: ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: _CulturalMapCanvas(
+                    controller: _mapController,
+                    places: _visiblePlaces,
+                    selectedPlace: _selectedPlace,
+                    userLocation: _currentPosition == null
+                        ? null
+                        : LatLng(
+                            _currentPosition!.latitude,
+                            _currentPosition!.longitude,
+                          ),
+                    onMapReady: () => _mapReady = true,
+                    onSelect: (place) => setState(() => _selectedPlace = place),
+                  ),
                 ),
+                Positioned(
+                  top: 47,
+                  right: 14,
+                  child: FloatingActionButton.small(
+                    heroTag: 'cultural-map-near-me',
+                    onPressed: _showNearMe,
+                    tooltip: 'Find places near me',
+                    backgroundColor: mapCardColor,
+                    foregroundColor: mapAccentBrown,
+                    child: Icon(
+                      _locationUnavailable
+                          ? Icons.location_disabled_outlined
+                          : Icons.near_me_outlined,
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 14,
+                  top: 14,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: mapCardColor.withValues(alpha: 0.94),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '${_visiblePlaces.length} cultural places',
+                      style: const TextStyle(
+                        color: mapPrimaryBrown,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+                if (_selectedPlace case final place?)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: CulturalMapMarkerPreview(
+                      place: place,
+                      canSave: _canSavePlaces,
+                      isSaved: _locallySavedPlaceIds.contains(place.id),
+                      onDismiss: () => setState(() => _selectedPlace = null),
+                      onSave: () => _toggleSavedPlace(place),
+                      onViewDetails: () => _openDetails(place),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        Semantics(
+          button: true,
+          expanded: _showAccessiblePlaceList,
+          label: _showAccessiblePlaceList
+              ? 'Hide accessible cultural place list'
+              : 'Show accessible cultural place list',
+          child: TextButton.icon(
+            onPressed: () => setState(
+              () => _showAccessiblePlaceList = !_showAccessiblePlaceList,
+            ),
+            icon: Icon(
+              _showAccessiblePlaceList
+                  ? Icons.map_outlined
+                  : Icons.format_list_bulleted,
+            ),
+            label: Text(
+              _showAccessiblePlaceList
+                  ? 'Hide accessible place list'
+                  : 'Accessible place list',
+            ),
+          ),
+        ),
+        if (_showAccessiblePlaceList)
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 180),
+            child: Semantics(
+              container: true,
+              label: 'Cultural places currently shown on the map',
+              child: ListView.builder(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                itemCount: _visiblePlaces.length,
+                itemBuilder: (context, index) {
+                  final place = _visiblePlaces[index];
+                  return Semantics(
+                    button: true,
+                    label:
+                        '${place.name}, ${place.primaryCategory.label}, ${place.locationLabel}',
+                    child: ListTile(
+                      dense: true,
+                      leading: Icon(place.primaryCategory.icon),
+                      title: Text(place.name),
+                      subtitle: Text(
+                        '${place.locationLabel} • ${place.primaryCategory.label}',
+                      ),
+                      onTap: () {
+                        setState(() => _selectedPlace = place);
+                        _animateMapTo(
+                          latitude: place.latitude,
+                          longitude: place.longitude,
+                          zoom: 13,
+                        );
+                      },
+                    ),
+                  );
+                },
               ),
             ),
           ),
-          if (_selectedPlace case final place?)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: CulturalMapMarkerPreview(
-                place: place,
-                canSave: _canSavePlaces,
-                isSaved: _locallySavedPlaceIds.contains(place.id),
-                onDismiss: () => setState(() => _selectedPlace = null),
-                onSave: () => setState(() {
-                  if (!_locallySavedPlaceIds.remove(place.id)) {
-                    _locallySavedPlaceIds.add(place.id);
-                  }
-                }),
-                onViewDetails: () => _openDetails(place),
-              ),
-            ),
-        ],
-      ),
+      ],
     );
   }
 }
@@ -566,6 +779,7 @@ class _CulturalMapCanvas extends StatelessWidget {
     required this.controller,
     required this.places,
     required this.selectedPlace,
+    required this.userLocation,
     required this.onMapReady,
     required this.onSelect,
   });
@@ -573,11 +787,33 @@ class _CulturalMapCanvas extends StatelessWidget {
   final MapController controller;
   final List<CulturalPlace> places;
   final CulturalPlace? selectedPlace;
+  final LatLng? userLocation;
   final VoidCallback onMapReady;
   final ValueChanged<CulturalPlace> onSelect;
 
   @override
   Widget build(BuildContext context) {
+    final markers = <Marker>[
+      ...places.map(
+        (place) => Marker(
+          point: LatLng(place.latitude, place.longitude),
+          width: selectedPlace?.id == place.id ? 48 : 40,
+          height: selectedPlace?.id == place.id ? 48 : 40,
+          child: _MapMarker(
+            place: place,
+            isSelected: selectedPlace?.id == place.id,
+            onTap: () => onSelect(place),
+          ),
+        ),
+      ),
+      if (userLocation != null)
+        Marker(
+          point: userLocation!,
+          width: 30,
+          height: 30,
+          child: const _UserLocationMarker(),
+        ),
+    ];
     return FlutterMap(
       mapController: controller,
       options: MapOptions(
@@ -596,22 +832,7 @@ class _CulturalMapCanvas extends StatelessWidget {
           userAgentPackageName: 'com.example.frontend',
           maxNativeZoom: 19,
         ),
-        MarkerLayer(
-          markers: places
-              .map(
-                (place) => Marker(
-                  point: LatLng(place.latitude, place.longitude),
-                  width: selectedPlace?.id == place.id ? 48 : 40,
-                  height: selectedPlace?.id == place.id ? 48 : 40,
-                  child: _MapMarker(
-                    place: place,
-                    isSelected: selectedPlace?.id == place.id,
-                    onTap: () => onSelect(place),
-                  ),
-                ),
-              )
-              .toList(growable: false),
-        ),
+        MarkerLayer(markers: markers),
         const SimpleAttributionWidget(
           source: Text('OpenStreetMap contributors'),
           alignment: Alignment.topRight,
@@ -660,6 +881,31 @@ class _MapMarker extends StatelessWidget {
             place.primaryCategory.icon,
             color: Colors.white,
             size: isSelected ? 24 : 20,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _UserLocationMarker extends StatelessWidget {
+  const _UserLocationMarker();
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'Your current location',
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.blue.withValues(alpha: 0.2),
+          shape: BoxShape.circle,
+        ),
+        padding: const EdgeInsets.all(6),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.blue,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
           ),
         ),
       ),
@@ -860,9 +1106,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                   contentPadding: EdgeInsets.zero,
                   activeTrackColor: mapAccentBrown,
                   title: const Text('Nearby places'),
-                  subtitle: const Text(
-                    'Uses a preview area until location is connected.',
-                  ),
+                  subtitle: const Text('Uses your current device location.'),
                   value: _nearbyOnly,
                   onChanged: (value) => setState(() => _nearbyOnly = value),
                 ),

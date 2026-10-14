@@ -6,6 +6,7 @@ const storyRoutes = require('./routes/storyRoutes');
 const authRoutes = require('./routes/authRoutes');
 const aiRoutes = require('./routes/aiRoutes');
 const connectionRoutes = require('./routes/connectionRoutes');
+const culturalPlaceRoutes = require('./routes/culturalPlaceRoutes');
 const { errorHandler, notFound } = require('./middleware/errorMiddleware');
 const { nodeEnv } = require('./config/env');
 
@@ -30,6 +31,7 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 app.use('/api/images', require('./routes/imageRoutes'));
 app.use('/api/communities', require('./routes/communityRoutes'));
 app.use('/api/stories', storyRoutes);
+app.use('/api/cultural-places', culturalPlaceRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/connections', connectionRoutes);

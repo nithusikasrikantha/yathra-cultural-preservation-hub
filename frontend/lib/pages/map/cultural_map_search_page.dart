@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 
-import '../../data/cultural_map_dummy_data.dart';
 import '../../models/cultural_place.dart';
 import '../../widgets/map/cultural_map_widgets.dart';
 
 class CulturalMapSearchPage extends StatefulWidget {
-  const CulturalMapSearchPage({super.key, this.initialQuery = ''});
+  const CulturalMapSearchPage({
+    super.key,
+    this.initialQuery = '',
+    this.places = const [],
+  });
 
   final String initialQuery;
+  final List<CulturalPlace> places;
 
   @override
   State<CulturalMapSearchPage> createState() => _CulturalMapSearchPageState();
@@ -32,10 +36,10 @@ class _CulturalMapSearchPageState extends State<CulturalMapSearchPage> {
 
   @override
   Widget build(BuildContext context) {
-    final places = CulturalMapDummyData.places
+    final places = widget.places
         .where((place) => place.matches(_query))
         .toList(growable: false);
-    final regions = CulturalMapDummyData.regions
+    final regions = _regionsFor(widget.places)
         .where(
           (region) => region.name.toLowerCase().contains(_query.toLowerCase()),
         )
@@ -62,6 +66,7 @@ class _CulturalMapSearchPageState extends State<CulturalMapSearchPage> {
                 textInputAction: TextInputAction.search,
                 onChanged: (value) => setState(() => _query = value),
                 decoration: InputDecoration(
+                  labelText: 'Search cultural places',
                   hintText: 'Search places, districts or topics...',
                   prefixIcon: const Icon(Icons.search, color: mapAccentBrown),
                   suffixIcon: _query.isEmpty
@@ -71,6 +76,7 @@ class _CulturalMapSearchPageState extends State<CulturalMapSearchPage> {
                             _controller.clear();
                             setState(() => _query = '');
                           },
+                          tooltip: 'Clear place search',
                           icon: const Icon(Icons.close),
                         ),
                   fillColor: Colors.white,
@@ -86,6 +92,27 @@ class _CulturalMapSearchPageState extends State<CulturalMapSearchPage> {
         ),
       ),
     );
+  }
+
+  List<CulturalRegion> _regionsFor(List<CulturalPlace> source) {
+    final grouped = <String, List<CulturalPlace>>{};
+    for (final place in source) {
+      final name = place.region.trim().isEmpty ? place.district : place.region;
+      grouped.putIfAbsent(name, () => []).add(place);
+    }
+    return grouped.entries
+        .map((entry) {
+          final places = entry.value;
+          final first = places.first;
+          return CulturalRegion(
+            name: entry.key,
+            province: first.province,
+            storyCount: places.fold(0, (sum, place) => sum + place.storyCount),
+            latitude: first.latitude,
+            longitude: first.longitude,
+          );
+        })
+        .toList(growable: false);
   }
 
   Widget _buildResults(
@@ -105,7 +132,7 @@ class _CulturalMapSearchPageState extends State<CulturalMapSearchPage> {
     }
 
     final shownPlaces = _query.trim().isEmpty
-        ? CulturalMapDummyData.places.take(4).toList(growable: false)
+        ? widget.places.take(4).toList(growable: false)
         : places;
     return ListView(
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -125,17 +152,21 @@ class _CulturalMapSearchPageState extends State<CulturalMapSearchPage> {
           _sectionLabel('REGIONS'),
           const SizedBox(height: 8),
           for (final region
-              in _query.trim().isEmpty ? CulturalMapDummyData.regions : regions)
+              in _query.trim().isEmpty ? _regionsFor(widget.places) : regions)
             _SearchResultTile(
               icon: Icons.public_rounded,
               title: '${region.name} Cultural Stories',
               subtitle:
                   '${region.province} Province • ${region.storyCount} stories',
               onTap: () {
-                final match = CulturalMapDummyData.places.firstWhere(
-                  (place) => place.district == region.name,
+                final matches = widget.places.where(
+                  (place) =>
+                      place.region == region.name ||
+                      place.district == region.name,
                 );
-                Navigator.of(context).pop(match);
+                if (matches.isNotEmpty) {
+                  Navigator.of(context).pop(matches.first);
+                }
               },
             ),
         ],

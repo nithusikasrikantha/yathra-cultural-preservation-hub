@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../screens/login_screen.dart';
 import '../services/auth_service.dart';
+import '../services/bookmark_service.dart';
 import 'culture_connect_pages.dart';
 import '../services/published_content_signal.dart';
+import '../services/youth_learning_activity_service.dart';
+import '../services/accessibility_preferences_service.dart';
 
 const _languages = ['Tamil', 'Sinhala', 'English'];
 const _interests = [
@@ -22,14 +25,6 @@ const _accentBrown = Color(0xFF6B4226);
 const _cardBg = Color(0xFFFFFDF8);
 const _buttonBg = Color(0xFFF5EBE1);
 
-/// Temporary Youth-only presentation data until social and learning metrics
-/// have dedicated backend support. These values are never persisted.
-abstract final class _YouthPreviewMetrics {
-  static const savedStories = 12;
-  static const storiesViewed = 24;
-  static const categoriesExplored = 8;
-}
-
 class YouthProfilePage extends StatefulWidget {
   const YouthProfilePage({super.key, this.onProfileSaved, this.onHome});
   final VoidCallback? onHome;
@@ -42,7 +37,61 @@ class YouthProfilePage extends StatefulWidget {
 
 class _YouthProfilePageState extends State<YouthProfilePage> {
   final AuthService _authService = AuthService();
+  final BookmarkService _bookmarkService = BookmarkService.instance;
+  final YouthLearningActivityService _learningActivityService =
+      YouthLearningActivityService.instance;
+  final AccessibilityPreferencesService _accessibilityPreferences =
+      AccessibilityPreferencesService.instance;
   Map<String, dynamic>? _stats;
+  bool _isLearningMetricsLoading = true;
+  String? _learningMetricsError;
+
+  int get _savedStoryCount => _bookmarkService.storyIds
+      .where((id) => !id.startsWith('youth-dummy-'))
+      .length;
+  int get _storiesViewedCount => _learningActivityService.viewedStoryIds.length;
+  int get _categoriesExploredCount =>
+      _learningActivityService.exploredCategories.length;
+
+  String _learningMetricValue(int value) {
+    if (_isLearningMetricsLoading) return '…';
+    if (_learningMetricsError != null) return '—';
+    return '$value';
+  }
+
+  Future<void> _loadLearningMetrics() async {
+    if (mounted) {
+      setState(() {
+        _isLearningMetricsLoading = true;
+        _learningMetricsError = null;
+      });
+    }
+    try {
+      await Future.wait([
+        _bookmarkService.load(),
+        _learningActivityService.load(),
+      ]);
+      if (!mounted) return;
+      setState(() => _isLearningMetricsLoading = false);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isLearningMetricsLoading = false;
+        _learningMetricsError = 'Learning activity is temporarily unavailable.';
+      });
+    }
+  }
+
+  void _handleLearningMetricsChanged() {
+    if (!mounted) return;
+    setState(() {
+      if (_bookmarkService.isLoaded && _learningActivityService.isLoaded) {
+        _isLearningMetricsLoading = false;
+        _learningMetricsError = null;
+      }
+    });
+  }
+
   Future<void> _loadStats() async {
     try {
       final stats = await _authService.getProfileStats();
@@ -75,6 +124,9 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
   @override
   void dispose() {
     PublishedContentSignal.revision.removeListener(_loadStats);
+    _bookmarkService.removeListener(_handleLearningMetricsChanged);
+    _learningActivityService.removeListener(_handleLearningMetricsChanged);
+    _accessibilityPreferences.removeListener(_handleAccessibilityChanged);
     super.dispose();
   }
 
@@ -87,7 +139,15 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
     super.initState();
     _loadProfile();
     _loadStats();
+    _bookmarkService.addListener(_handleLearningMetricsChanged);
+    _learningActivityService.addListener(_handleLearningMetricsChanged);
+    _accessibilityPreferences.addListener(_handleAccessibilityChanged);
+    _loadLearningMetrics();
     PublishedContentSignal.revision.addListener(_loadStats);
+  }
+
+  void _handleAccessibilityChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadProfile() async {
@@ -424,7 +484,7 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
           _statDivider(36),
           _overviewMetric(
             Icons.bookmarks_outlined,
-            '${_YouthPreviewMetrics.savedStories}',
+            _learningMetricValue(_savedStoryCount),
             'Saved',
           ),
           _statDivider(36),
@@ -474,46 +534,24 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
     'INSIGHTS',
     Column(
       children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: _accentBrown.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Row(
-            children: [
-              Icon(Icons.trending_up_rounded, color: _accentBrown, size: 22),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'You explored more cultural stories this month.',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: _primaryBrown,
-                    height: 1.3,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+        _learningActivitySummary(),
         const SizedBox(height: 14),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
             _insightMetric(
               Icons.menu_book_outlined,
-              '${_YouthPreviewMetrics.storiesViewed}',
+              _learningMetricValue(_storiesViewedCount),
               'Stories Viewed',
             ),
             _insightMetric(
               Icons.bookmark_outline,
-              '${_YouthPreviewMetrics.savedStories}',
+              _learningMetricValue(_savedStoryCount),
               'Saved',
             ),
             _insightMetric(
               Icons.category_outlined,
-              '${_YouthPreviewMetrics.categoriesExplored}',
+              _learningMetricValue(_categoriesExploredCount),
               'Categories',
             ),
           ],
@@ -522,15 +560,57 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
         _pillButton(
           Icons.bar_chart_rounded,
           'View Learning Insights',
-          () => _showComingSoon(
-            'Learning Insights',
-            'Detailed learning insights will be available here.',
-          ),
+          _showLearningInsights,
         ),
       ],
     ),
     showChevron: true,
   );
+
+  Widget _learningActivitySummary() {
+    final message = _isLearningMetricsLoading
+        ? 'Loading your real learning activity.'
+        : _learningMetricsError ??
+              'Your learning activity is based on real stories viewed and saved.';
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _accentBrown.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          _isLearningMetricsLoading
+              ? const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: _accentBrown,
+                  ),
+                )
+              : Icon(
+                  _learningMetricsError == null
+                      ? Icons.insights_outlined
+                      : Icons.info_outline,
+                  color: _accentBrown,
+                  size: 22,
+                ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                fontSize: 13,
+                color: _primaryBrown,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _connectionsCard() => _card(
     'CONNECTIONS',
@@ -561,55 +641,130 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
     showChevron: true,
   );
 
-  Future<void> _showComingSoon(String title, String message) =>
-      showModalBottomSheet<void>(
-        context: context,
-        backgroundColor: _cardBg,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        builder: (context) => SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.local_florist, color: _accentBrown, size: 32),
-                const SizedBox(height: 12),
+  Future<void> _showLearningInsights() => showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: _cardBg,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (context) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.local_florist, color: _accentBrown, size: 32),
+            const SizedBox(height: 12),
+            const Text(
+              'Learning Insights',
+              style: TextStyle(
+                fontFamily: 'Serif',
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: _primaryBrown,
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (_isLearningMetricsLoading)
+              const Text(
+                'Loading real learning activity…',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.black54, height: 1.4),
+              )
+            else if (_learningMetricsError != null)
+              Text(
+                _learningMetricsError!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.black54, height: 1.4),
+              )
+            else ...[
+              _insightRow(
+                Icons.menu_book_outlined,
+                'Real stories viewed',
+                '$_storiesViewedCount',
+              ),
+              _insightRow(
+                Icons.bookmark_outline,
+                'Real stories saved',
+                '$_savedStoryCount',
+              ),
+              _insightRow(
+                Icons.category_outlined,
+                'Categories explored',
+                '$_categoriesExploredCount',
+              ),
+              if (_learningActivityService.exploredCategories.isNotEmpty) ...[
+                const SizedBox(height: 10),
                 Text(
-                  title,
-                  style: const TextStyle(
-                    fontFamily: 'Serif',
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: _primaryBrown,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  message,
+                  'Categories: ${_learningActivityService.exploredCategories.join(', ')}',
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Colors.black54, height: 1.4),
                 ),
-                const SizedBox(height: 18),
-                _pillButton(
-                  Icons.check_rounded,
-                  'Got it',
-                  () => Navigator.of(context).pop(),
-                ),
               ],
+            ],
+            const SizedBox(height: 18),
+            _pillButton(
+              Icons.check_rounded,
+              'Got it',
+              () => Navigator.of(context).pop(),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  Widget _insightRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Icon(icon, color: _accentBrown, size: 20),
+          const SizedBox(width: 10),
+          Expanded(child: Text(label)),
+          Text(
+            value,
+            style: const TextStyle(
+              color: _primaryBrown,
+              fontWeight: FontWeight.bold,
             ),
           ),
-        ),
-      );
+        ],
+      ),
+    );
+  }
 
   Widget _accountCard() => _card(
     'ACCOUNT',
-    _actionRow(
-      Icons.logout_rounded,
-      'Logout',
-      _logout,
-      color: Colors.redAccent,
+    Column(
+      children: [
+        Semantics(
+          container: true,
+          label:
+              'High contrast, ${_accessibilityPreferences.highContrastEnabled ? 'on' : 'off'}',
+          child: SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('High contrast'),
+            subtitle: const Text('Increase contrast for clearer reading.'),
+            value: _accessibilityPreferences.highContrastEnabled,
+            onChanged: (enabled) async {
+              try {
+                await _accessibilityPreferences.setHighContrast(enabled);
+              } catch (_) {
+                if (!mounted) return;
+                _showSnackBar('High contrast preference could not be saved.');
+              }
+            },
+          ),
+        ),
+        const Divider(height: 1),
+        _actionRow(
+          Icons.logout_rounded,
+          'Logout',
+          _logout,
+          color: Colors.redAccent,
+        ),
+      ],
     ),
   );
 
@@ -678,63 +833,69 @@ class _YouthProfilePageState extends State<YouthProfilePage> {
   );
 
   Widget _overviewMetric(IconData icon, String value, String label) => Flexible(
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: _accentBrown, size: 22),
-        const SizedBox(width: 8),
-        Flexible(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                value,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: _primaryBrown,
+    child: Semantics(
+      label: '$label: $value',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: _accentBrown, size: 22),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: _primaryBrown,
+                  ),
                 ),
-              ),
-              Text(
-                label,
-                style: const TextStyle(fontSize: 11.5, color: Colors.black54),
-              ),
-            ],
+                Text(
+                  label,
+                  style: const TextStyle(fontSize: 11.5, color: Colors.black54),
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     ),
   );
 
   Widget _insightMetric(IconData icon, String value, String label) => Flexible(
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 18, color: Colors.black54),
-        const SizedBox(width: 6),
-        Flexible(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                value,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: _primaryBrown,
+    child: Semantics(
+      label: '$label: $value',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: Colors.black54),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: _primaryBrown,
+                  ),
                 ),
-              ),
-              Text(
-                label,
-                maxLines: 2,
-                style: const TextStyle(fontSize: 11, color: Colors.black54),
-              ),
-            ],
+                Text(
+                  label,
+                  maxLines: 2,
+                  style: const TextStyle(fontSize: 11, color: Colors.black54),
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     ),
   );
 

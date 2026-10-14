@@ -164,24 +164,28 @@ class CulturalMapFilterChips extends StatelessWidget {
     final isSelected = selected == category;
     return Padding(
       padding: const EdgeInsets.only(right: 8),
-      child: ChoiceChip(
-        label: Text(label),
+      child: Semantics(
         selected: isSelected,
-        onSelected: (_) => onSelected(category),
-        showCheckmark: false,
-        selectedColor: mapAccentBrown,
-        backgroundColor: mapCardColor,
-        side: BorderSide(
-          color: isSelected
-              ? mapAccentBrown
-              : mapAccentBrown.withValues(alpha: 0.18),
+        label: '$label filter${isSelected ? ', selected' : ''}',
+        child: ChoiceChip(
+          label: Text(label),
+          selected: isSelected,
+          onSelected: (_) => onSelected(category),
+          showCheckmark: false,
+          selectedColor: mapAccentBrown,
+          backgroundColor: mapCardColor,
+          side: BorderSide(
+            color: isSelected
+                ? mapAccentBrown
+                : mapAccentBrown.withValues(alpha: 0.18),
+          ),
+          labelStyle: TextStyle(
+            color: isSelected ? Colors.white : mapPrimaryBrown,
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 5),
         ),
-        labelStyle: TextStyle(
-          color: isSelected ? Colors.white : mapPrimaryBrown,
-          fontSize: 12.5,
-          fontWeight: FontWeight.w600,
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 5),
       ),
     );
   }

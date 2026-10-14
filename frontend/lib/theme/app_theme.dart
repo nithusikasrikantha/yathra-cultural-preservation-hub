@@ -11,7 +11,6 @@ class AppTheme {
       useMaterial3: true,
       colorScheme: ColorScheme.fromSeed(
         seedColor: primaryColor,
-        background: backgroundColor,
         surface: backgroundColor,
         primary: primaryColor,
         secondary: secondaryTextColor,
@@ -46,9 +45,7 @@ class AppTheme {
           backgroundColor: primaryColor,
           foregroundColor: backgroundColor,
           minimumSize: const Size(double.infinity, 50),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           textStyle: const TextStyle(
             fontFamily: 'sans-serif',
             fontWeight: FontWeight.bold,
@@ -58,14 +55,53 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: Colors.white.withOpacity(0.5),
+        fillColor: Colors.white.withValues(alpha: 0.5),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide.none,
         ),
         hintStyle: TextStyle(
           fontFamily: 'sans-serif',
-          color: secondaryTextColor.withOpacity(0.5),
+          color: secondaryTextColor.withValues(alpha: 0.5),
+        ),
+      ),
+    );
+  }
+
+  static ThemeData get highContrastTheme {
+    final scheme =
+        ColorScheme.fromSeed(
+          seedColor: Colors.black,
+          brightness: Brightness.light,
+        ).copyWith(
+          primary: Colors.black,
+          onPrimary: Colors.white,
+          secondary: const Color(0xFF004D40),
+          onSecondary: Colors.white,
+          surface: Colors.white,
+          onSurface: Colors.black,
+          error: const Color(0xFF9B0000),
+          onError: Colors.white,
+        );
+    return lightTheme.copyWith(
+      colorScheme: scheme,
+      scaffoldBackgroundColor: Colors.white,
+      dividerTheme: const DividerThemeData(color: Colors.black, thickness: 1.5),
+      inputDecorationTheme: lightTheme.inputDecorationTheme.copyWith(
+        fillColor: Colors.white,
+        enabledBorder: const OutlineInputBorder(
+          borderSide: BorderSide(color: Colors.black, width: 1.5),
+        ),
+        focusedBorder: const OutlineInputBorder(
+          borderSide: BorderSide(color: Colors.black, width: 2),
+        ),
+        hintStyle: const TextStyle(color: Colors.black54),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+          side: const BorderSide(color: Colors.black, width: 1.5),
         ),
       ),
     );
