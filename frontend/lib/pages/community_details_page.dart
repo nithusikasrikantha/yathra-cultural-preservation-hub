@@ -1,3 +1,4 @@
+import 'elder/story_details_page.dart';
 import 'package:flutter/material.dart';
 import '../models/community_theme.dart';
 import '../models/story.dart';
@@ -293,10 +294,12 @@ class _CommunityDetailsPageState extends State<CommunityDetailsPage> {
                         onTap: () => Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => YouthStoryDetailPage(
-                              storyId: story.id,
-                              userRole: _role ?? 'youth',
-                            ),
+                            builder: (_) => _role == 'elder'
+                                ? StoryDetailsPage(story: story)
+                                : YouthStoryDetailPage(
+                                    storyId: story.id,
+                                    userRole: _role ?? 'youth',
+                                  ),
                           ),
                         ),
                       ),

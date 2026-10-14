@@ -1,11 +1,20 @@
 import 'package:flutter/material.dart';
+import 'author_avatar.dart';
 import '../pages/culture_connect_pages.dart';
 import '../services/culture_connect_service.dart';
 import '../models/connection_model.dart';
 
 class HomeTopBar extends StatelessWidget implements PreferredSizeWidget {
-  const HomeTopBar({super.key, required this.isElder, this.onProfile});
+  const HomeTopBar({
+    super.key,
+    required this.isElder,
+    this.onProfile,
+    this.avatar,
+    this.userName = '',
+  });
   final bool isElder;
+  final String? avatar;
+  final String userName;
   final VoidCallback? onProfile;
   static const _brown = Color(0xFF4A2C1A);
   @override
@@ -74,11 +83,7 @@ class HomeTopBar extends StatelessWidget implements PreferredSizeWidget {
       IconButton(
         tooltip: 'Profile',
         onPressed: onProfile,
-        icon: const CircleAvatar(
-          radius: 17,
-          backgroundColor: Color(0xFFEADCC9),
-          child: Icon(Icons.person_outline_rounded, color: _brown, size: 23),
-        ),
+        icon: AuthorAvatar(name: userName, image: avatar, radius: 17),
       ),
       const SizedBox(width: 8),
     ],

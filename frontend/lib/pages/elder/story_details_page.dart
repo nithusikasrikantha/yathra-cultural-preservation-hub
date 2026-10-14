@@ -1,7 +1,14 @@
+import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:audioplayers/audioplayers.dart';
+import '../../services/auth_service.dart';
+import '../../services/api_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../models/story.dart';
+import '../../widgets/author_avatar.dart';
 import '../../config/api_config.dart';
 
 class StoryDetailsPage extends StatefulWidget {
@@ -19,15 +26,100 @@ class _StoryDetailsPageState extends State<StoryDetailsPage> {
   static const Color _primaryBrown = Color(0xFF4A2C1A);
   static const Color _accentBrown = Color(0xFF6B4226);
 
-  int _coverIndex = 0;
   bool _isSaved = false;
   bool _isLiked = false;
   int _likeCount = 24;
 
-  final List<String> _comments = [
-    'Amma, this brings back so many childhood memories from our village.',
-    'Thank you for preserving this traditional wisdom for us!',
-  ];
+  final List<Map<String, dynamic>> _storyComments = [];
+  bool _storyCommentsLoading = false;
+  bool _posting = false;
+  String? _storyCommentsError;
+  final AudioPlayer _reader = AudioPlayer();
+  StreamSubscription? _readerSubscription;
+  bool _reading = false;
+  int _readingRequest = 0;
+  String? get _storyId => widget.story?.id ?? _getString('_id');
+  bool get _realStory => RegExp(r'^[a-fA-F0-9]{24}$').hasMatch(_storyId ?? '');
+  @override
+  void initState() {
+    super.initState();
+    _loadComments();
+    _readerSubscription = _reader.onPlayerComplete.listen((_) {
+      if (mounted) setState(() => _reading = false);
+    });
+  }
+
+  Future<void> _loadComments() async {
+    if (!_realStory) return;
+    setState(() => _storyCommentsLoading = true);
+    try {
+      final response = await http
+          .get(Uri.parse('${ApiConfig.baseUrl}/api/stories/$_storyId/comments'))
+          .timeout(const Duration(seconds: 15));
+      if (response.statusCode != 200)
+        throw Exception('Comments could not be loaded.');
+      final data = jsonDecode(response.body);
+      if (mounted)
+        setState(() {
+          _storyComments.clear();
+          _storyComments.addAll(
+            List<Map<String, dynamic>>.from(data['comments']),
+          );
+          _storyCommentsError = null;
+        });
+    } catch (_) {
+      if (mounted)
+        setState(
+          () => _storyCommentsError =
+              'Comments could not be loaded. Tap to retry.',
+        );
+    } finally {
+      if (mounted) setState(() => _storyCommentsLoading = false);
+    }
+  }
+
+  void _message(String text) {
+    if (mounted)
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  Future<void> _listen() async {
+    if (_reading) {
+      _readingRequest++;
+      await _reader.stop();
+      if (mounted) setState(() => _reading = false);
+      return;
+    }
+    if (_content.trim().isEmpty) {
+      _message('This story has no written text to read.');
+      return;
+    }
+    final request = ++_readingRequest;
+    setState(() => _reading = true);
+    try {
+      final response = await http
+          .post(
+            Uri.parse('${ApiConfig.baseUrl}/api/ai/story-speech'),
+            headers: await AuthService.authenticatedHeaders(),
+            body: jsonEncode({'text': _content, 'language': _language}),
+          )
+          .timeout(const Duration(seconds: 120));
+      if (!mounted || request != _readingRequest) return;
+      if (response.statusCode != 200)
+        throw Exception(
+          jsonDecode(response.body)['message'] ??
+              'Story reading is unavailable.',
+        );
+      await _reader.play(
+        BytesSource(response.bodyBytes, mimeType: 'audio/wav'),
+      );
+    } catch (error) {
+      if (mounted && request == _readingRequest) {
+        setState(() => _reading = false);
+        _message(error.toString().replaceFirst('Exception: ', ''));
+      }
+    }
+  }
 
   final TextEditingController _commentController = TextEditingController();
 
@@ -49,8 +141,6 @@ class _StoryDetailsPageState extends State<StoryDetailsPage> {
   String get _content =>
       widget.story?.storyText ?? _getString('storyText') ?? '';
 
-  String? get _audioPath => widget.story?.audioPath ?? _getString('audioPath');
-
   String? get _location => widget.story?.location ?? _getString('location');
   String? get _timePeriod =>
       widget.story?.timePeriod ?? _getString('timePeriod');
@@ -68,7 +158,10 @@ class _StoryDetailsPageState extends State<StoryDetailsPage> {
   ];
   String _resolveImage(String value) =>
       value.startsWith('/') ? '${ApiConfig.baseUrl}$value' : value;
-  String? get _aiSummary => _getString('aiSummary');
+  String? get _aiSummary =>
+      (widget.story?.summaryStatus ?? _getString('summaryStatus')) == 'approved'
+      ? widget.story?.aiSummary ?? _getString('aiSummary')
+      : null;
 
   List<String> get _tags {
     if (widget.story != null) {
@@ -81,17 +174,42 @@ class _StoryDetailsPageState extends State<StoryDetailsPage> {
     return const [];
   }
 
-  void _addComment() {
+  Future<void> _addComment() async {
     final text = _commentController.text.trim();
-    if (text.isEmpty) return;
-    setState(() {
-      _comments.add(text);
-      _commentController.clear();
-    });
+    if (text.isEmpty || _posting) return;
+    if (!_realStory) {
+      _message('Comments are available on published stories.');
+      return;
+    }
+    setState(() => _posting = true);
+    try {
+      final result = await ApiService(baseUrl: ApiConfig.baseUrl).post(
+        '/api/stories/$_storyId/comments',
+        headers: await AuthService.authenticatedHeaders(),
+        body: {'text': text},
+        timeout: const Duration(seconds: 15),
+      );
+      if (mounted)
+        setState(() {
+          _storyComments.insert(
+            0,
+            Map<String, dynamic>.from(result['comment']),
+          );
+          if (_commentController.text.trim() == text)
+            _commentController.clear();
+        });
+    } catch (error) {
+      _message(error.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _posting = false);
+    }
   }
 
   @override
   void dispose() {
+    _readingRequest++;
+    _readerSubscription?.cancel();
+    _reader.dispose();
     _commentController.dispose();
     super.dispose();
   }
@@ -100,6 +218,22 @@ class _StoryDetailsPageState extends State<StoryDetailsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _bgColor,
+      appBar: AppBar(
+        backgroundColor: _bgColor,
+        foregroundColor: _primaryBrown,
+        centerTitle: true,
+        title: const Text(
+          'YATHRA',
+          style: TextStyle(fontFamily: 'Serif', fontWeight: FontWeight.bold),
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Save story',
+            icon: Icon(_isSaved ? Icons.bookmark : Icons.bookmark_border),
+            onPressed: () => setState(() => _isSaved = !_isSaved),
+          ),
+        ],
+      ),
       bottomNavigationBar: _buildComposer(),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -109,27 +243,23 @@ class _StoryDetailsPageState extends State<StoryDetailsPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildCover(),
-              Transform.translate(
-                offset: const Offset(0, -30),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: _buildAudioPlayerCard(),
-                ),
-              ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    const SizedBox(height: 18),
+                    _buildMetadataRow(),
+                    const SizedBox(height: 14),
                     // Story Title
                     Text(
                       _title,
                       style: const TextStyle(
-                        fontSize: 31,
+                        fontSize: 30,
                         fontWeight: FontWeight.bold,
                         color: _primaryBrown,
                         fontFamily: 'Serif',
-                        height: 1.3,
+                        height: 1.15,
                       ),
                     ),
 
@@ -137,8 +267,6 @@ class _StoryDetailsPageState extends State<StoryDetailsPage> {
 
                     // Author and metadata
                     _buildAuthorHeader(),
-                    const SizedBox(height: 16),
-                    _buildMetadataRow(),
                     const SizedBox(height: 18),
                     const Divider(color: Color(0xFFE0D7CB)),
 
@@ -150,6 +278,8 @@ class _StoryDetailsPageState extends State<StoryDetailsPage> {
                       const SizedBox(height: 18),
                     ],
 
+                    _buildAudioPlayerCard(),
+                    const SizedBox(height: 20),
                     // Full Story Content
                     Container(
                       width: double.infinity,
@@ -161,7 +291,7 @@ class _StoryDetailsPageState extends State<StoryDetailsPage> {
                             : 'Preserved cultural story passed down through generations.',
                         style: const TextStyle(
                           fontFamily: 'Serif',
-                          fontSize: 21,
+                          fontSize: 19,
                           color: Colors.black87,
                           height: 1.6,
                         ),
@@ -205,6 +335,14 @@ class _StoryDetailsPageState extends State<StoryDetailsPage> {
                     ],
                     // Action Bar
                     _buildActionBar(),
+                    TextButton.icon(
+                      onPressed: _copyStory,
+                      icon: const Icon(Icons.share_outlined),
+                      label: const Text(
+                        'Share story',
+                        style: TextStyle(fontSize: 17),
+                      ),
+                    ),
 
                     const SizedBox(height: 24),
 
@@ -226,18 +364,26 @@ class _StoryDetailsPageState extends State<StoryDetailsPage> {
   Widget _buildAuthorHeader() {
     return Row(
       children: [
-        CircleAvatar(
+        AuthorAvatar(
+          name: widget.story?.authorName ?? _getString('authorName') ?? 'Elder',
+          image:
+              widget.story?.authorAvatar ??
+              _getString('authorAvatar') ??
+              (widget.storyData?['publishedBy'] is Map
+                  ? widget.storyData?['publishedBy']['profileInfo']?['avatar']
+                        ?.toString()
+                  : null),
           radius: 24,
-          backgroundColor: _accentBrown.withValues(alpha: 0.2),
-          child: const Icon(Icons.person, color: _primaryBrown, size: 28),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Elder Knowledge Keeper',
+              Text(
+                widget.story?.authorName ??
+                    _getString('authorName') ??
+                    'Elder Knowledge Keeper',
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
@@ -300,72 +446,50 @@ class _StoryDetailsPageState extends State<StoryDetailsPage> {
   }
 
   // AUDIO PLAYER
-  Widget _buildAudioPlayerCard() {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF1EADF),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white),
-        boxShadow: [
-          BoxShadow(
-            color: _primaryBrown.withValues(alpha: .13),
-            blurRadius: 20,
-            offset: const Offset(0, 7),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          IconButton.filled(
-            tooltip: 'Listen to story',
-            style: IconButton.styleFrom(
-              backgroundColor: const Color(0xFF984A2B),
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  _audioPath == null || _audioPath!.isEmpty
-                      ? 'This story has no voice recording yet.'
-                      : 'Voice playback is not available yet.',
+  Widget _buildAudioPlayerCard() => Container(
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF1EADF),
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Row(
+          children: [
+            Icon(Icons.headphones, color: _primaryBrown, size: 28),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Read aloud',
+                style: TextStyle(
+                  fontSize: 19,
+                  fontWeight: FontWeight.bold,
+                  color: _primaryBrown,
                 ),
               ),
             ),
-            icon: const Icon(Icons.play_arrow_rounded, size: 30),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Listen to Story',
-                  style: TextStyle(fontSize: 14, color: _primaryBrown),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: SizedBox(
-                        height: 20,
-                        child: CustomPaint(painter: _WaveformPainter()),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    const Text(
-                      '00:00',
-                      style: TextStyle(fontSize: 11, color: Colors.black54),
-                    ),
-                  ],
-                ),
-              ],
+          ],
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: _primaryBrown,
+              minimumSize: const Size(0, 48),
+            ),
+            onPressed: _listen,
+            icon: Icon(_reading ? Icons.stop : Icons.play_arrow),
+            label: Text(
+              _reading ? 'Stop reading' : 'Listen to Story',
+              style: const TextStyle(fontSize: 17),
             ),
           ),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
 
   Future<void> _copyStory() async {
     await Clipboard.setData(ClipboardData(text: '$_title\n\n$_content'));
@@ -377,120 +501,20 @@ class _StoryDetailsPageState extends State<StoryDetailsPage> {
     );
   }
 
-  Widget _buildCover() {
-    final fallback = Image.asset(
-      'assets/images/story_landscape.jpg',
-      fit: BoxFit.cover,
-    );
-    return SizedBox(
-      height: 265,
-      width: double.infinity,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (_allImages.isNotEmpty)
-            PageView.builder(
-              itemCount: _allImages.length,
-              onPageChanged: (index) => setState(() => _coverIndex = index),
-              itemBuilder: (_, index) => GestureDetector(
-                onTap: () => _openGallery(index),
-                child: _storyImage(_allImages[index]),
-              ),
-            )
-          else
-            fallback,
-          if (_allImages.length > 1)
-            Positioned(
-              bottom: 44,
-              left: 0,
-              right: 0,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  for (var i = 0; i < _allImages.length; i++)
-                    Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 3),
-                      width: 7,
-                      height: 7,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: i == _coverIndex ? Colors.white : Colors.white54,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          const IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0x66000000), Colors.transparent],
-                ),
-              ),
+  Widget _buildCover() => AspectRatio(
+    aspectRatio: 16 / 9,
+    child: _imageUrl != null && _imageUrl!.isNotEmpty
+        ? GestureDetector(
+            onTap: () => _openGallery(0),
+            child: _storyImage(_imageUrl!),
+          )
+        : Container(
+            color: const Color(0xFFEFE5D9),
+            child: const Center(
+              child: Icon(Icons.auto_stories, size: 48, color: _accentBrown),
             ),
           ),
-          Positioned(
-            top: 8,
-            left: 10,
-            right: 10,
-            child: Row(
-              children: [
-                IconButton(
-                  tooltip: 'Back',
-                  onPressed: () => Navigator.maybePop(context),
-                  icon: const Icon(Icons.arrow_back, color: Colors.white),
-                ),
-                const Spacer(),
-                if (_allImages.isNotEmpty)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black38,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '${_coverIndex + 1} / ${_allImages.length}',
-                      style: const TextStyle(color: Colors.white, fontSize: 12),
-                    ),
-                  ),
-                IconButton(
-                  tooltip: _isSaved ? 'Unsave story' : 'Save story',
-                  onPressed: () => setState(() => _isSaved = !_isSaved),
-                  icon: Icon(
-                    _isSaved ? Icons.bookmark : Icons.bookmark_border,
-                    color: Colors.white,
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Share story',
-                  onPressed: _copyStory,
-                  icon: const Icon(
-                    Icons.ios_share_outlined,
-                    color: Colors.white,
-                  ),
-                ),
-                PopupMenuButton<String>(
-                  icon: const Icon(Icons.more_horiz, color: Colors.white),
-                  onSelected: (_) => _copyStory(),
-                  itemBuilder: (_) => [
-                    const PopupMenuItem(
-                      value: 'copy',
-                      child: Text('Copy story text'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  );
 
   Widget _storyImage(String image) => Image.network(
     _resolveImage(image),
@@ -507,65 +531,37 @@ class _StoryDetailsPageState extends State<StoryDetailsPage> {
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Text(
-        'Archival Gallery (${_gallery.length})',
+        'Story photos (${_gallery.length})',
         style: const TextStyle(
-          fontSize: 17,
-          fontWeight: FontWeight.w600,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
           color: _primaryBrown,
         ),
       ),
+      const SizedBox(height: 6),
+      const Text(
+        'Swipe sideways. Tap a photo to view it.',
+        style: TextStyle(fontSize: 15, color: Colors.black54),
+      ),
       const SizedBox(height: 12),
-      LayoutBuilder(
-        builder: (context, constraints) => Row(
-          children: [
-            for (var i = 0; i < _gallery.length && i < 4; i++) ...[
-              if (i > 0) const SizedBox(width: 8),
-              SizedBox(
-                width: (constraints.maxWidth - 24) / 4,
-                height: 88,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(13),
-                  child: GestureDetector(
-                    onTap: () => _openGallery(
-                      i + (_imageUrl != null && _imageUrl!.isNotEmpty ? 1 : 0),
-                    ),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        _storyImage(_gallery[i]),
-                        if (i == 3 && _gallery.length > 4)
-                          ColoredBox(
-                            color: Colors.black54,
-                            child: Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    '+${_gallery.length - 3}',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 23,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const Text(
-                                    'Tap to expand',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 9,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
+      SizedBox(
+        height: 160,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: _gallery.length,
+          separatorBuilder: (_, _) => const SizedBox(width: 12),
+          itemBuilder: (_, i) => SizedBox(
+            width: 240,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: GestureDetector(
+                onTap: () => _openGallery(
+                  i + (_imageUrl != null && _imageUrl!.isNotEmpty ? 1 : 0),
                 ),
+                child: _storyImage(_gallery[i]),
               ),
-            ],
-          ],
+            ),
+          ),
         ),
       ),
     ],
@@ -721,7 +717,7 @@ class _StoryDetailsPageState extends State<StoryDetailsPage> {
             ),
             const SizedBox(width: 6),
             Text(
-              '${_comments.length} Comments',
+              '${_storyComments.length} Comments',
               style: const TextStyle(fontSize: 14, color: Colors.black87),
             ),
           ],
@@ -731,132 +727,69 @@ class _StoryDetailsPageState extends State<StoryDetailsPage> {
   }
 
   // COMMENTS SECTION
-  Widget _buildCommentsSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Memories & Responses (${_comments.length})',
-          style: const TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
-            color: _primaryBrown,
-            fontFamily: 'Serif',
+  Widget _buildCommentsSection() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        'Conversation (${_storyComments.length})',
+        style: const TextStyle(
+          fontSize: 23,
+          fontWeight: FontWeight.bold,
+          color: _primaryBrown,
+          fontFamily: 'Serif',
+        ),
+      ),
+      const SizedBox(height: 16),
+      if (_storyCommentsLoading) const LinearProgressIndicator(),
+      if (_storyCommentsError != null)
+        TextButton(onPressed: _loadComments, child: Text(_storyCommentsError!)),
+      if (!_storyCommentsLoading &&
+          _storyCommentsError == null &&
+          _storyComments.isEmpty)
+        const Text(
+          'No comments yet. Share a memory or ask a question.',
+          style: TextStyle(fontSize: 17, color: Colors.black54),
+        ),
+      for (final comment in _storyComments)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 20),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const CircleAvatar(
+                backgroundColor: Color(0xFFDCC6AF),
+                child: Icon(Icons.person, color: _primaryBrown),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      comment['authorName']?.toString() ?? 'Community member',
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                        color: _primaryBrown,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      comment['text']?.toString() ?? '',
+                      style: const TextStyle(
+                        fontSize: 17,
+                        height: 1.5,
+                        color: Colors.black87,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 12),
-
-        // Comment List
-        for (final comment in _comments)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            margin: const EdgeInsets.only(bottom: 10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEFE5D9),
-              borderRadius: BorderRadius.circular(17),
-              border: Border.all(color: Colors.grey.withValues(alpha: 0.15)),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const CircleAvatar(
-                  radius: 18,
-                  backgroundColor: Color(0xFFDCC6AF),
-                  child: Icon(
-                    Icons.person_outline,
-                    color: _accentBrown,
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _comments.indexOf(comment) < 2
-                            ? 'Community member'
-                            : 'You',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: _primaryBrown,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        comment,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          height: 1.4,
-                          color: Colors.black87,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _WaveformPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    const heights = [
-      5,
-      10,
-      8,
-      16,
-      12,
-      20,
-      7,
-      13,
-      18,
-      10,
-      6,
-      16,
-      20,
-      11,
-      15,
-      8,
-      19,
-      13,
-      6,
-      10,
-      17,
-      8,
-      14,
-      20,
-      9,
-      15,
-      7,
-      12,
-      18,
-      6,
-      13,
-      10,
-    ];
-    final paint = Paint()
-      ..color = const Color(0xFFAF9580)
-      ..strokeWidth = 2
-      ..strokeCap = StrokeCap.round;
-    for (var i = 0; i < heights.length; i++) {
-      final x = (i + .5) * size.width / heights.length;
-      canvas.drawLine(
-        Offset(x, (size.height - heights[i]) / 2),
-        Offset(x, (size.height + heights[i]) / 2),
-        paint,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_WaveformPainter oldDelegate) => false;
+    ],
+  );
 }
 
 class _StoryGallery extends StatefulWidget {
