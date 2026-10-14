@@ -110,9 +110,9 @@ The current flow exposes the Add Story action; following itself does not automat
 
 The elder supplies a title, category, language, and original story content. Categories are typable with suggestions. Supported language choices are Tamil, Sinhala, and English.
 
-The author can type, record audio, use live speech recognition to populate text, and listen to text through text-to-speech while composing. The resulting text remains editable.
+The author can type, record audio, convert the saved recording to editable text, and listen to text through text-to-speech while composing. Convert Recording to Text uploads the saved M4A file to the authenticated backend transcription endpoint; it does not open a new microphone session. The backend sends the recording to Gemini for transcription, preserving the spoken language and wording. Add Story voice conversion, text reading, and story summaries use Gemini; other AI actions retain their existing OpenAI configuration. GEMINI_SUMMARY_MODEL configures summary generation, defaulting to gemini-3.5-flash-lite. Approval, storage, and preview selection remain the same.
 
-Important current limitation: speech-to-text listens to the microphone; it does not upload and transcribe an already recorded file. The Flutter client permits proceeding with text or a recording, but the Story model still requires storyText. A recording-only publishing path is therefore not fully consistent and should not be promised as launch-ready.
+Recording conversion and spoken story reading require internet access and GEMINI_API_KEY in backend/.env. VOICE_AI_PROVIDER=gemini selects Gemini conversion. GEMINI_TRANSCRIPTION_MODEL defaults to gemini-3.5-transcribe and GEMINI_TTS_MODEL defaults to gemini-3.8-flash-tts. Gemini recording uploads are limited to 14 MB to allow for base64 encoding within the provider request limit. Failed conversions preserve the recording for retry. Read Story requests WAV narration from the backend and plays it on the phone; Stop cancels playback or ignores an outstanding generation result. Review converted text before publishing. These provider integrations have mocked tests; live quality and language support require device testing with an active key. Story publication still requires storyText, and shared playback of published original recordings remains incomplete.
 
 ### Section 2: Optional context and media
 
@@ -336,7 +336,7 @@ Changing MONGODB_URI changes the destination database, not the existing data. Ac
 9. Add shared production media storage, deploy the backend, and configure the app's production API URL.
 10. Validate language support, elder usability, summary fidelity, and failure recovery with representative users.
 
-These priorities describe observed gaps; this documentation task does not change those application workflows.
+These priorities describe remaining gaps. Recording-to-text conversion has since been connected to backend transcription; shared audio playback remains separate.
 
 ## 23. Source guide for developers
 
@@ -357,6 +357,8 @@ The following repository files ground this document:
 - backend/src/routes/communityRoutes.js and models/CommunityMembership.js: following and real member counts.
 - backend/src/routes/connectionRoutes.js and models/Connection.js: workspace storage and review/publication transitions.
 - backend/src/routes/aiRoutes.js: story-summary authorization and endpoint.
+- backend/src/routes/transcriptionRoutes.js: authenticated saved-recording upload and provider transcription and story narration.
+- backend/src/services/geminiVoiceService.js: Gemini audio conversion and WAV narration.
 - backend/src/controllers/cultureContentAssistantController.js: assistant action permissions, context selection, and consent.
 - backend/src/services/cultureContentAssistantService.js: provider request, instructions, strict schemas, and errors.
 - frontend/lib/services/culture_assistant_fallback.dart: deterministic assistance used when applicable.

@@ -9,9 +9,15 @@ import '../../services/story_service.dart';
 import '../../services/published_content_signal.dart';
 
 class ElderHomePage extends StatefulWidget {
-  const ElderHomePage({super.key, this.userName = 'Kamala', this.onProfile});
+  const ElderHomePage({
+    super.key,
+    this.userName = 'Kamala',
+    this.onProfile,
+    this.avatar,
+  });
 
   final String userName;
+  final String? avatar;
   final VoidCallback? onProfile;
 
   @override
@@ -36,6 +42,12 @@ class _ElderHomePageState extends State<ElderHomePage> {
     super.initState();
     PublishedContentSignal.revision.addListener(_loadPublishedStories);
     _loadPublishedStories();
+  }
+
+  @override
+  void didUpdateWidget(covariant ElderHomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.avatar != widget.avatar) _loadPublishedStories();
   }
 
   @override
@@ -72,7 +84,12 @@ class _ElderHomePageState extends State<ElderHomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _bgColor,
-      appBar: HomeTopBar(isElder: true, onProfile: widget.onProfile),
+      appBar: HomeTopBar(
+        isElder: true,
+        onProfile: widget.onProfile,
+        avatar: widget.avatar,
+        userName: widget.userName,
+      ),
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: _loadPublishedStories,

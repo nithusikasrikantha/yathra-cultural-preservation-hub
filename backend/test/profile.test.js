@@ -18,6 +18,11 @@ test('elder profile edits persist and profile counts use ownership and accepted 
  const profile = (await call('elder-profile')).data.profile;
  for (const key of Object.keys(fields)) assert.equal(profile[key], fields[key]);
  assert.equal(user.profileInfo.avatar, 'https://example.org/avatar.jpg');
+ assert.equal((await call('elder-profile', { ...fields, avatar: '/uploads/avatar-test.jpg' })).status, 200);
+ assert.equal((await call('elder-profile')).data.profile.avatar, '/uploads/avatar-test.jpg');
+ assert.equal((await call('elder-profile', { ...fields, avatar: 'javascript:bad' })).status, 400);
+ assert.equal((await call('elder-profile', fields)).status, 200);
+ assert.equal(user.profileInfo.avatar, '/uploads/avatar-test.jpg');
  const stats = (await call('profile-stats')).data;
  assert.deepEqual(stats, { contributions: 3, connections: 2 });
  assert.deepEqual(storyFilter, { isDeleted: false, $or: [{ publishedBy: user._id }, { contributors: user._id }] });

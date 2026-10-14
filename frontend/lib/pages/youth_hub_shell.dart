@@ -25,6 +25,7 @@ class _YouthHubShellState extends State<YouthHubShell> {
   bool? _profileComplete;
   String _role = 'youth';
   String _name = '';
+  String? _avatar;
 
   @override
   void initState() {
@@ -41,6 +42,7 @@ class _YouthHubShellState extends State<YouthHubShell> {
         if (mounted && profile['name'] != null) {
           setState(() {
             _name = profile['name'];
+            _avatar = profile['avatar']?.toString();
           });
         }
       } else {
@@ -74,7 +76,11 @@ class _YouthHubShellState extends State<YouthHubShell> {
         index: _currentIndex,
         children: [
           isElder
-              ? ElderHomePage(userName: _name, onProfile: () => _selectTab(3))
+              ? ElderHomePage(
+                  userName: _name,
+                  avatar: _avatar,
+                  onProfile: () => _selectTab(3),
+                )
               : YouthHomePage(
                   userName: _name,
                   profileComplete: _profileComplete,
@@ -89,9 +95,10 @@ class _YouthHubShellState extends State<YouthHubShell> {
                   userName: _name,
                   onHome: () => _selectTab(0),
                   onProfileSaved: (profile) {
-                    setState(
-                      () => _name = profile['name']?.toString() ?? _name,
-                    );
+                    setState(() {
+                      _name = profile['name']?.toString() ?? _name;
+                      _avatar = profile['avatar']?.toString();
+                    });
                   },
                 )
               : YouthProfilePage(

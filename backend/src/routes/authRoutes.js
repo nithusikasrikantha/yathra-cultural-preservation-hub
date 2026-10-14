@@ -253,11 +253,12 @@ router.get('/elder-profile', requireAuth, (req, res) => {
 });
 router.put('/elder-profile', requireAuth, async (req, res) => {
   if (req.user.role !== 'elder') return res.status(403).json({ message: 'An elder account is required.' });
-  const { name, bio = '', location = '', preferredLanguage } = req.body || {};
+  const { name, bio = '', location = '', preferredLanguage, avatar } = req.body || {};
+  if (avatar !== undefined && avatar !== null && (typeof avatar !== 'string' || !/^\/uploads\/[a-zA-Z0-9-]+\.(jpg|png|webp)$/.test(avatar))) return res.status(400).json({ message: 'Choose an uploaded profile picture.' });
   if (typeof name !== 'string' || !name.trim() || name.trim().length > 100 || typeof bio !== 'string' || bio.length > 1000 || typeof location !== 'string' || location.length > 100 || !youthLanguages.has(preferredLanguage)) return res.status(400).json({ message: 'Enter a name, a valid language, and short profile details.' });
   try {
     req.user.name = name.trim();
-    req.user.profileInfo = { ...(req.user.profileInfo?.toObject?.() || req.user.profileInfo || {}), bio: bio.trim(), location: location.trim(), preferredLanguage };
+    req.user.profileInfo = { ...(req.user.profileInfo?.toObject?.() || req.user.profileInfo || {}), bio: bio.trim(), location: location.trim(), preferredLanguage, ...(avatar !== undefined ? { avatar } : {}) };
     await req.user.save();
     res.json({ profile: elderProfileResponse(req.user) });
   } catch (_) { res.status(500).json({ message: 'Profile could not be saved.' }); }

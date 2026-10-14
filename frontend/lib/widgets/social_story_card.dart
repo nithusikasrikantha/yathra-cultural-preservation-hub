@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../config/api_config.dart';
 import '../models/story.dart';
+import 'author_avatar.dart';
 
 class SocialStoryCard extends StatefulWidget {
   const SocialStoryCard({
@@ -76,19 +77,10 @@ class _SocialStoryCardState extends State<SocialStoryCard> {
               padding: const EdgeInsets.fromLTRB(16, 16, 10, 12),
               child: Row(
                 children: [
-                  CircleAvatar(
+                  AuthorAvatar(
+                    name: author,
+                    image: story.authorAvatar,
                     radius: 22,
-                    backgroundColor: const Color(0xFFEAD9C6),
-                    child: Text(
-                      author.isEmpty
-                          ? 'Y'
-                          : author.substring(0, 1).toUpperCase(),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: _rust,
-                        fontSize: 20,
-                      ),
-                    ),
                   ),
                   const SizedBox(width: 11),
                   Expanded(
