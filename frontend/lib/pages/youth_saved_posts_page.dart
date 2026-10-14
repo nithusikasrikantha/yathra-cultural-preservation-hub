@@ -170,8 +170,12 @@ class _YouthSavedPostsPageState extends State<YouthSavedPostsPage> {
 
   Widget _buildBody() {
     if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(color: _primaryBrown),
+      return Center(
+        child: Semantics(
+          label: 'Loading saved stories',
+          liveRegion: true,
+          child: CircularProgressIndicator(color: _primaryBrown),
+        ),
       );
     }
 
@@ -379,12 +383,16 @@ class _SavedStoryCard extends StatelessWidget {
                   ],
                 ),
               ),
-              IconButton(
-                onPressed: onRemove,
-                tooltip: 'Remove bookmark',
-                icon: const Icon(
-                  Icons.bookmark,
-                  color: _YouthSavedPostsPageState._primaryBrown,
+              Semantics(
+                button: true,
+                label: 'Remove ${story.title} from saved stories',
+                child: IconButton(
+                  onPressed: onRemove,
+                  tooltip: 'Remove bookmark',
+                  icon: const Icon(
+                    Icons.bookmark,
+                    color: _YouthSavedPostsPageState._primaryBrown,
+                  ),
                 ),
               ),
             ],

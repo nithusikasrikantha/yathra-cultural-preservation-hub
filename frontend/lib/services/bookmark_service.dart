@@ -1,13 +1,15 @@
 import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class BookmarkService extends ChangeNotifier {
   BookmarkService._();
 
   static final BookmarkService instance = BookmarkService._();
-  static const String _storageKey = 'youth_bookmarked_story_ids';
+  static const String _storageKeyPrefix = 'youth_bookmarked_story_ids_';
+  static const FlutterSecureStorage _secureStorage = FlutterSecureStorage();
 
   final List<String> _storyIds = [];
   Future<void>? _loadFuture;
@@ -16,9 +18,19 @@ class BookmarkService extends ChangeNotifier {
   bool get isLoaded => _isLoaded;
   List<String> get storyIds => UnmodifiableListView(_storyIds);
 
-  Future<void> load() {
-    if (_isLoaded) return Future.value();
-    return _loadFuture ??= _loadPersistedIds();
+  String? _storageKey;
+
+  Future<void> load() async {
+    final key = await _resolveStorageKey();
+    if (_isLoaded && _storageKey == key) return;
+    if (_loadFuture != null) return _loadFuture!;
+    _storageKey = key;
+    _loadFuture = _loadPersistedIds(key);
+    try {
+      await _loadFuture;
+    } finally {
+      _loadFuture = null;
+    }
   }
 
   bool isBookmarked(String storyId) => _storyIds.contains(storyId);
@@ -70,10 +82,16 @@ class BookmarkService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _loadPersistedIds() async {
+  Future<String> _resolveStorageKey() async {
+    final userId = (await _secureStorage.read(key: 'auth_user_id'))?.trim();
+    final scope = userId == null || userId.isEmpty ? 'anonymous' : userId;
+    return '$_storageKeyPrefix$scope';
+  }
+
+  Future<void> _loadPersistedIds(String key) async {
     try {
       final preferences = await SharedPreferences.getInstance();
-      final persistedIds = preferences.getStringList(_storageKey) ?? const [];
+      final persistedIds = preferences.getStringList(key) ?? const [];
       final uniqueIds = <String>{};
 
       for (final id in persistedIds) {
@@ -88,20 +106,20 @@ class BookmarkService extends ChangeNotifier {
         ..addAll(uniqueIds);
 
       if (!_sameIds(persistedIds, _storyIds)) {
-        await preferences.setStringList(_storageKey, _storyIds);
+        await preferences.setStringList(key, _storyIds);
       }
 
       _isLoaded = true;
       notifyListeners();
     } catch (_) {
-      _loadFuture = null;
       rethrow;
     }
   }
 
   Future<void> _persist() async {
     final preferences = await SharedPreferences.getInstance();
-    final saved = await preferences.setStringList(_storageKey, _storyIds);
+    final key = _storageKey ?? await _resolveStorageKey();
+    final saved = await preferences.setStringList(key, _storyIds);
     if (!saved) {
       throw StateError('Bookmarks could not be saved on this device.');
     }

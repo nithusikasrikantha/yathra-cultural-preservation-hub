@@ -38,6 +38,7 @@ class YouthStoryCard extends StatelessWidget {
           onTap: onTap,
           isBookmarked: isBookmarked,
           onBookmark: onBookmark,
+          onComment: onComment,
         ),
       );
     }

@@ -1,14 +1,19 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 
 import '../data/elder_story_engagement_demo_data.dart';
+import '../config/api_config.dart';
 import '../models/story.dart';
 import '../services/bookmark_service.dart';
 import '../services/story_service.dart';
 import '../services/term_explanation_service.dart';
 import '../services/translation_service.dart';
 import '../services/vocabulary_translation_service.dart';
+import '../services/youth_learning_activity_service.dart';
 import '../services/youth_dummy_content_store.dart';
 
 class YouthStoryDetailPage extends StatefulWidget {
@@ -45,6 +50,11 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
       VocabularyTranslationService();
   final BookmarkService _bookmarkService = BookmarkService.instance;
   final YouthDummyContentStore _dummyStore = YouthDummyContentStore.instance;
+  final YouthLearningActivityService _learningActivityService =
+      YouthLearningActivityService.instance;
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  StreamSubscription<PlayerState>? _audioStateSubscription;
+  StreamSubscription<void>? _audioCompleteSubscription;
 
   bool get _isDummyStory =>
       widget.preloadedStory != null && _dummyStore.isDummyId(widget.storyId);
@@ -60,10 +70,21 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
   bool _showTranslation = false;
   String? _translationError;
   String _selectedTargetLanguage = 'Tamil';
+  PlayerState _audioState = PlayerState.stopped;
+  bool _isAudioLoading = false;
+  String? _audioError;
 
   @override
   void initState() {
     super.initState();
+    _audioStateSubscription = _audioPlayer.onPlayerStateChanged.listen((state) {
+      if (!mounted) return;
+      setState(() => _audioState = state);
+    });
+    _audioCompleteSubscription = _audioPlayer.onPlayerComplete.listen((_) {
+      if (!mounted) return;
+      setState(() => _audioState = PlayerState.completed);
+    });
     _attachStoryListeners();
     _loadStory();
   }
@@ -78,6 +99,7 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
     }
 
     _detachStoryListeners(oldWidget);
+    unawaited(_stopAudio());
     _attachStoryListeners();
     _loadStory();
   }
@@ -85,8 +107,63 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
   @override
   void dispose() {
     _detachStoryListeners(widget);
+    _audioStateSubscription?.cancel();
+    _audioCompleteSubscription?.cancel();
+    unawaited(_disposeAudio());
     super.dispose();
   }
+
+  Future<void> _disposeAudio() async {
+    await _audioPlayer.stop();
+    await _audioPlayer.dispose();
+  }
+
+  Future<void> _stopAudio() async {
+    await _audioPlayer.stop();
+    if (!mounted) return;
+    setState(() {
+      _audioState = PlayerState.stopped;
+      _isAudioLoading = false;
+    });
+  }
+
+  Uri? _resolveMediaUri(String? value) {
+    final source = value?.trim();
+    if (source == null || source.isEmpty) return null;
+
+    final uri = Uri.tryParse(source);
+    if (uri != null &&
+        (uri.scheme == 'http' || uri.scheme == 'https') &&
+        uri.host.isNotEmpty) {
+      return uri;
+    }
+
+    if (source.startsWith('/uploads/')) {
+      final baseUri = Uri.tryParse(ApiConfig.baseUrl);
+      if (baseUri == null || baseUri.host.isEmpty) return null;
+      return baseUri.resolve(source);
+    }
+
+    return null;
+  }
+
+  Uint8List? _decodeImageDataUri(String? value) {
+    final source = value?.trim();
+    if (source == null || !source.startsWith('data:image/')) return null;
+
+    final separator = source.indexOf(',');
+    if (separator < 0) return null;
+    final metadata = source.substring(0, separator).toLowerCase();
+    if (!metadata.contains(';base64')) return null;
+
+    try {
+      return base64Decode(source.substring(separator + 1));
+    } on FormatException {
+      return null;
+    }
+  }
+
+  Uri? get _audioUri => _resolveMediaUri(_story?.audioPath);
 
   bool _isDummyFor(YouthStoryDetailPage page) =>
       page.preloadedStory != null && _dummyStore.isDummyId(page.storyId);
@@ -151,6 +228,9 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
   }
 
   Future<void> _loadStory() async {
+    _audioError = null;
+    _audioState = PlayerState.stopped;
+    _isAudioLoading = false;
     _resetTranslationState(
       sourceLanguage: _isDummyStory ? widget.preloadedStory?.language : null,
     );
@@ -178,6 +258,7 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
         _selectedTargetLanguage = _defaultTargetLanguage(story.language);
         _isLoading = false;
       });
+      unawaited(_recordLearningView(story));
     } on StoryNotFoundException {
       if (!mounted) return;
 
@@ -194,6 +275,15 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
         _errorMessage = 'We could not load this story. Please try again.';
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _recordLearningView(Story story) async {
+    if (_isElder || _isDummyStory) return;
+    try {
+      await _learningActivityService.recordStoryView(story);
+    } catch (_) {
+      // Learning metrics remain unavailable rather than blocking story reading.
     }
   }
 
@@ -409,6 +499,12 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
 
   List<Widget> _buildYouthStoryContent(Story story) {
     final metadata = _isDummyStory ? _dummyStore.metadataFor(story.id) : null;
+    final visibleTags = story.tags
+        .where((tag) {
+          final normalized = tag.trim().toLowerCase();
+          return normalized != 'demo' && normalized != 'sample';
+        })
+        .toList(growable: false);
     return [
       if (metadata != null) ...[
         _buildDemoHero(metadata, story),
@@ -440,12 +536,12 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
           fontWeight: FontWeight.bold,
         ),
       ),
-      if (story.tags.isNotEmpty) ...[
+      if (visibleTags.isNotEmpty) ...[
         const SizedBox(height: 20),
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: story.tags
+          children: visibleTags
               .map((tag) => _TagChip(label: tag))
               .toList(growable: false),
         ),
@@ -456,9 +552,9 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
         const SizedBox(height: 18),
       ],
       _buildStoryBody(story),
-      if (story.audioPath != null) ...[
+      if (_audioUri != null) ...[
         const SizedBox(height: 20),
-        _buildAudioAvailability(),
+        _buildAudioPlayer(),
       ],
       const SizedBox(height: 20),
       _buildTranslationTools(),
@@ -607,6 +703,7 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
   }
 
   Widget _buildStoryBody(Story story) {
+    final media = _buildYouthMedia(story);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
@@ -618,18 +715,7 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (story.imageDataUri != null) ...[
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.memory(
-                base64Decode(story.imageDataUri!.split(',').last),
-                width: double.infinity,
-                height: 220,
-                fit: BoxFit.cover,
-              ),
-            ),
-            const SizedBox(height: 16),
-          ],
+          if (media != null) ...[media, const SizedBox(height: 16)],
           Text(
             _showTranslation
                 ? _translation?.translatedText ?? story.storyText
@@ -641,6 +727,241 @@ class _YouthStoryDetailPageState extends State<YouthStoryDetailPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget? _buildYouthMedia(Story story) {
+    final seen = <String>{};
+    final images = <_StoryImageSource>[];
+
+    void addRemote(String? source) {
+      final uri = _resolveMediaUri(source);
+      if (uri == null || !seen.add(uri.toString())) return;
+      images.add(_StoryImageSource.network(uri));
+    }
+
+    void addDataUri(String? source) {
+      final bytes = _decodeImageDataUri(source);
+      if (bytes == null || !seen.add(source!.trim())) return;
+      images.add(_StoryImageSource.memory(bytes));
+    }
+
+    addRemote(story.bannerImage);
+    if (images.isEmpty) addDataUri(story.imageDataUri);
+    for (final image in story.additionalImages) {
+      addRemote(image);
+    }
+
+    if (images.isEmpty) return null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildStoryImage(images.first, label: 'Story banner image'),
+        if (images.length > 1) ...[
+          const SizedBox(height: 14),
+          Semantics(
+            header: true,
+            child: const Text(
+              'More story images',
+              style: TextStyle(
+                color: _darkBrown,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          ...images
+              .skip(1)
+              .map(
+                (image) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _buildStoryImage(
+                    image,
+                    label: 'Additional story image',
+                  ),
+                ),
+              ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildStoryImage(_StoryImageSource source, {required String label}) {
+    final image = source.bytes != null
+        ? Image.memory(
+            source.bytes!,
+            width: double.infinity,
+            height: 220,
+            fit: BoxFit.cover,
+            semanticLabel: label,
+            frameBuilder: (context, child, frame, wasSynchronouslyLoaded) =>
+                frame == null && !wasSynchronouslyLoaded
+                ? _buildImagePlaceholder(label, loading: true)
+                : child,
+            errorBuilder: (context, error, stackTrace) =>
+                _buildImagePlaceholder(label),
+          )
+        : Image.network(
+            source.uri!.toString(),
+            width: double.infinity,
+            height: 220,
+            fit: BoxFit.cover,
+            semanticLabel: label,
+            loadingBuilder: (context, child, progress) => progress == null
+                ? child
+                : _buildImagePlaceholder(label, loading: true),
+            errorBuilder: (context, error, stackTrace) =>
+                _buildImagePlaceholder(label),
+          );
+
+    return ClipRRect(borderRadius: BorderRadius.circular(12), child: image);
+  }
+
+  Widget _buildImagePlaceholder(String label, {bool loading = false}) {
+    return Semantics(
+      label: loading ? 'Loading $label' : '$label unavailable',
+      child: Container(
+        width: double.infinity,
+        height: 220,
+        color: const Color(0xFFF1E5D5),
+        alignment: Alignment.center,
+        child: loading
+            ? const CircularProgressIndicator(color: _primaryBrown)
+            : const Icon(
+                Icons.image_not_supported_outlined,
+                size: 42,
+                color: _primaryBrown,
+              ),
+      ),
+    );
+  }
+
+  Future<void> _toggleAudio() async {
+    final uri = _audioUri;
+    if (uri == null || _isAudioLoading) return;
+
+    setState(() {
+      _isAudioLoading = true;
+      _audioError = null;
+    });
+
+    try {
+      if (_audioState == PlayerState.playing) {
+        await _audioPlayer.pause();
+      } else if (_audioState == PlayerState.paused) {
+        await _audioPlayer.resume();
+      } else {
+        await _audioPlayer.play(UrlSource(uri.toString()));
+      }
+      if (!mounted) return;
+      setState(() => _isAudioLoading = false);
+    } catch (_) {
+      await _audioPlayer.stop();
+      if (!mounted) return;
+      setState(() {
+        _audioState = PlayerState.stopped;
+        _isAudioLoading = false;
+        _audioError = 'Audio could not be played. Please try again.';
+      });
+    }
+  }
+
+  Future<void> _replayAudio() async {
+    final uri = _audioUri;
+    if (uri == null || _isAudioLoading) return;
+    setState(() {
+      _isAudioLoading = true;
+      _audioError = null;
+    });
+    try {
+      await _audioPlayer.play(UrlSource(uri.toString()));
+      if (!mounted) return;
+      setState(() => _isAudioLoading = false);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _audioState = PlayerState.stopped;
+        _isAudioLoading = false;
+        _audioError = 'Audio could not be played. Please try again.';
+      });
+    }
+  }
+
+  Widget _buildAudioPlayer() {
+    final isPlaying = _audioState == PlayerState.playing;
+    final isCompleted = _audioState == PlayerState.completed;
+    return Semantics(
+      container: true,
+      label: 'Story audio player',
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF1E5D5),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.mic_none_outlined, color: _primaryBrown),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Story audio',
+                    style: TextStyle(
+                      color: _darkBrown,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: isCompleted
+                      ? 'Replay story audio'
+                      : isPlaying
+                      ? 'Pause story audio'
+                      : 'Play story audio',
+                  onPressed: _isAudioLoading
+                      ? null
+                      : isCompleted
+                      ? _replayAudio
+                      : _toggleAudio,
+                  icon: _isAudioLoading
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          isCompleted
+                              ? Icons.replay
+                              : isPlaying
+                              ? Icons.pause
+                              : Icons.play_arrow,
+                        ),
+                ),
+                if (isPlaying || _audioState == PlayerState.paused)
+                  IconButton(
+                    tooltip: 'Stop story audio',
+                    onPressed: _isAudioLoading ? null : _stopAudio,
+                    icon: const Icon(Icons.stop),
+                  ),
+              ],
+            ),
+            if (_audioError != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _audioError!,
+                style: const TextStyle(color: _darkBrown, height: 1.35),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -1106,6 +1427,7 @@ class _VocabularyTranslationSheetState
               TextField(
                 controller: _textController,
                 enabled: !_isLoading,
+                autofocus: true,
                 maxLength: 100,
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _translate(),
@@ -1430,6 +1752,7 @@ class _TermExplanationSheetState extends State<_TermExplanationSheet> {
               TextField(
                 controller: _termController,
                 enabled: !_isLoading,
+                autofocus: true,
                 maxLength: 80,
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _explain(),
@@ -1610,6 +1933,15 @@ class _TermExplanationCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _StoryImageSource {
+  const _StoryImageSource.network(this.uri) : bytes = null;
+
+  const _StoryImageSource.memory(this.bytes) : uri = null;
+
+  final Uri? uri;
+  final Uint8List? bytes;
 }
 
 class _ElderEngagementFooter extends StatelessWidget {
