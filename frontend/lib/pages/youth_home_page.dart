@@ -7,6 +7,7 @@ import '../services/youth_dummy_content_store.dart';
 import '../widgets/youth_story_card.dart';
 import '../services/story_service.dart';
 import '../services/story_comment_service.dart';
+import '../services/published_content_signal.dart';
 import 'youth_story_detail_page.dart';
 import '../widgets/youth_story_comments_sheet.dart';
 
@@ -37,6 +38,7 @@ class _YouthHomePageState extends State<YouthHomePage> {
   final BookmarkService _bookmarkService = BookmarkService.instance;
   final StoryCommentService _commentService = StoryCommentService();
   List<Story> _stories = const [];
+  bool _showingDummyStories = false;
   String _search = "";
   bool _isLoading = true;
   bool _following = false;
@@ -53,8 +55,6 @@ class _YouthHomePageState extends State<YouthHomePage> {
     _dummyStore.addListener(_onBookmarksChanged);
     _bookmarkService.addListener(_onBookmarksChanged);
     _initializeBookmarks();
-    _bookmarks.addListener(_onBookmarksChanged);
-    _bookmarks.load().catchError((_) {});
     PublishedContentSignal.revision.addListener(_load);
     _load();
   }
@@ -63,7 +63,7 @@ class _YouthHomePageState extends State<YouthHomePage> {
   void dispose() {
     _dummyStore.removeListener(_onBookmarksChanged);
     _bookmarkService.removeListener(_onBookmarksChanged);
-    _bookmarks.removeListener(_onBookmarksChanged);
+    _bookmarkService.removeListener(_onBookmarksChanged);
     PublishedContentSignal.revision.removeListener(_load);
     super.dispose();
   }
@@ -79,6 +79,29 @@ class _YouthHomePageState extends State<YouthHomePage> {
     } catch (_) {
       // Bookmark failures are handled when the user tries to save a story.
     }
+  }
+
+  void _showDummyComments() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (context) => const SafeArea(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Row(
+            children: [
+              Icon(Icons.chat_bubble_outline_rounded, color: _accentBrown),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Comments are demo-only for temporary Youth content.',
+                  style: TextStyle(fontSize: 16, height: 1.4),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _load() async {
@@ -183,7 +206,10 @@ class _YouthHomePageState extends State<YouthHomePage> {
   void _openStory(Story story) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => YouthStoryDetailPage(storyId: story.id),
+        builder: (_) => YouthStoryDetailPage(
+          storyId: story.id,
+          preloadedStory: _dummyStore.isDummyId(story.id) ? story : null,
+        ),
       ),
     );
   }
