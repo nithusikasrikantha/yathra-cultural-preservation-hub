@@ -19,7 +19,8 @@ class Story {
     this.summaryStatus,
     this.authorName,
     this.authorAvatar,
-  });
+    List<String> contributorNames = const [],
+  }) : _contributorNames = contributorNames;
 
   final String id;
   final String title;
@@ -40,6 +41,14 @@ class Story {
   final String? summaryStatus;
   final String? authorName;
   final String? authorAvatar;
+  final List<String>? _contributorNames;
+  List<String> get contributorNames => _contributorNames ?? const [];
+  String get displayAuthor => contributorNames.length > 1
+      ? contributorNames.join(' & ')
+      : authorName ??
+            (contributorNames.isNotEmpty
+                ? contributorNames.first
+                : 'Elder Knowledge Keeper');
   String get preview =>
       summaryStatus == 'approved' && aiSummary?.isNotEmpty == true
       ? aiSummary!
@@ -80,6 +89,13 @@ class Story {
       authorName: json['publishedBy'] is Map
           ? _optionalString(json['publishedBy']['name'])
           : null,
+      contributorNames: json['contributors'] is List
+          ? (json['contributors'] as List)
+                .whereType<Map>()
+                .map((person) => _optionalString(person['name']))
+                .whereType<String>()
+                .toList()
+          : const [],
       createdAt: DateTime.tryParse(_optionalString(json['createdAt']) ?? ''),
     );
   }

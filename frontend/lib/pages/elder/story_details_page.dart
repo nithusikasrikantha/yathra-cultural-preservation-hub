@@ -381,7 +381,7 @@ class _StoryDetailsPageState extends State<StoryDetailsPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                widget.story?.authorName ??
+                widget.story?.displayAuthor ??
                     _getString('authorName') ??
                     'Elder Knowledge Keeper',
                 style: TextStyle(

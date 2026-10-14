@@ -211,7 +211,7 @@ router.get('/', (req, res, next) => (req.query.following === 'true' || req.query
     }
 
     const [items, totalItems] = await Promise.all([
-      Story.find(filter).populate('publishedBy', 'name profileInfo.avatar').sort({ createdAt: -1 }).skip(skip).limit(limit),
+      Story.find(filter).populate('publishedBy', 'name profileInfo.avatar').populate('contributors', 'name').sort({ createdAt: -1 }).skip(skip).limit(limit),
       Story.countDocuments(filter),
     ]);
 
@@ -248,7 +248,7 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Story not found.' });
     }
 
-    await story.populate('publishedBy', 'name profileInfo.avatar');
+    await story.populate('publishedBy', 'name profileInfo.avatar').populate('contributors', 'name');
     return res.status(200).json({ story });
   } catch (error) {
     console.error('Error fetching story:', error);

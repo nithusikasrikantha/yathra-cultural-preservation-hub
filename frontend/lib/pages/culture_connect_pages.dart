@@ -6,6 +6,8 @@ import '../services/culture_assistant_fallback.dart';
 import '../services/published_content_signal.dart';
 import 'youth_story_detail_page.dart';
 import 'elder/share_story_page.dart';
+import 'elder/story_details_page.dart';
+import '../services/story_service.dart';
 
 class MyConnectionsPage extends StatefulWidget {
   const MyConnectionsPage({super.key, required this.isElder});
@@ -689,6 +691,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
   bool _loading = true;
   String? _error;
 
+  String _statusFilter = 'all';
   @override
   void initState() {
     super.initState();
@@ -737,8 +740,9 @@ class _WorkspacePageState extends State<WorkspacePage> {
     'under_review' => widget.isElder ? 'Review' : 'View Project',
     'approved' => widget.isElder ? 'Publish' : 'View Project',
     'published' => 'View Project',
-    'changes_requested' => widget.isElder ? 'Waiting for Youth' : 'Add Content',
-    _ => widget.isElder ? 'Continue Draft' : 'Add Content',
+    'changes_requested' =>
+      widget.isElder ? 'View Requested Changes' : 'Revise Contribution',
+    _ => 'Continue Draft',
   };
 
   List<Map<String, dynamic>> _entries(Connection connection) {
@@ -853,7 +857,57 @@ class _WorkspacePageState extends State<WorkspacePage> {
                         style: Theme.of(context).textTheme.bodyLarge,
                       ),
                       const SizedBox(height: 14),
-                      for (final project in _projects) ...[
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            for (final status in [
+                              'all',
+                              'draft',
+                              'under_review',
+                              'changes_requested',
+                              'approved',
+                              'published',
+                            ])
+                              Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: ChoiceChip(
+                                  label: Text(
+                                    status == 'all'
+                                        ? 'All'
+                                        : _statusLabel(status),
+                                  ),
+                                  selected: _statusFilter == status,
+                                  selectedColor: const Color(0xFFEAD9C6),
+                                  onSelected: (_) =>
+                                      setState(() => _statusFilter = status),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      if (_statusFilter != 'all' &&
+                          !_projects.any(
+                            (project) => _entries(project).any(
+                              (entry) =>
+                                  (entry['status'] ?? 'draft') == _statusFilter,
+                            ),
+                          ))
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 20),
+                          child: Text(
+                            'No ${_statusLabel(_statusFilter).toLowerCase()} contributions yet.',
+                          ),
+                        ),
+                      for (final project in _projects.where(
+                        (project) =>
+                            _statusFilter == 'all' ||
+                            _entries(project).any(
+                              (entry) =>
+                                  (entry['status'] ?? 'draft') == _statusFilter,
+                            ),
+                      )) ...[
                         Card(
                           color: Colors.white,
                           child: Padding(
@@ -898,7 +952,12 @@ class _WorkspacePageState extends State<WorkspacePage> {
                                     label: const Text('Add Content'),
                                   ),
                                 ),
-                                for (final entry in _entries(project)) ...[
+                                for (final entry in _entries(project).where(
+                                  (entry) =>
+                                      _statusFilter == 'all' ||
+                                      (entry['status'] ?? 'draft') ==
+                                          _statusFilter,
+                                )) ...[
                                   const Divider(height: 22),
                                   Row(
                                     children: [
@@ -932,21 +991,11 @@ class _WorkspacePageState extends State<WorkspacePage> {
                                   Align(
                                     alignment: Alignment.centerRight,
                                     child: FilledButton.icon(
-                                      onPressed:
-                                          widget.isElder &&
-                                              ![
-                                                'under_review',
-                                                'approved',
-                                                'published',
-                                              ].contains(
-                                                entry['status']?.toString(),
-                                              )
-                                          ? null
-                                          : () => _openEditor(
-                                              project,
-                                              workspaceItemId: entry['_id']
-                                                  ?.toString(),
-                                            ),
+                                      onPressed: () => _openEditor(
+                                        project,
+                                        workspaceItemId: entry['_id']
+                                            ?.toString(),
+                                      ),
                                       icon: Icon(
                                         ['draft', 'changes_requested'].contains(
                                               entry['status']?.toString(),
@@ -1301,6 +1350,47 @@ class _WorkspaceEditorPageState extends State<WorkspaceEditorPage> {
       );
       return;
     }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirm and publish'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _title.text,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                _content.text,
+                style: const TextStyle(fontSize: 17, height: 1.5),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'This approved contribution will appear in the shared feed and its linked community.',
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Publish'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
     setState(() => _busy = true);
     try {
       final result = await _service.publish(
@@ -1316,7 +1406,9 @@ class _WorkspaceEditorPageState extends State<WorkspaceEditorPage> {
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Published to YATHRA'),
-          content: const Text('The contribution is now available in Explore.'),
+          content: const Text(
+            'The contribution is now available in the shared feed, category, and linked community.',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
@@ -1329,6 +1421,29 @@ class _WorkspaceEditorPageState extends State<WorkspaceEditorPage> {
       if (mounted) _showError(e);
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _openPublishedStory() async {
+    if (_storyId == null) return;
+    try {
+      if (widget.isElder) {
+        final story = await const StoryService().fetchStoryById(_storyId!);
+        if (!mounted) return;
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => StoryDetailsPage(story: story)),
+        );
+      } else {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => YouthStoryDetailPage(storyId: _storyId!),
+          ),
+        );
+      }
+    } catch (error) {
+      if (mounted) _showError(error);
     }
   }
 
@@ -1429,18 +1544,12 @@ class _WorkspaceEditorPageState extends State<WorkspaceEditorPage> {
                             onPressed: _busy ? null : _publish,
                             icon: const Icon(Icons.publish_rounded),
                             label: Text(
-                              _busy ? 'Publishing...' : 'Publish to Explore',
+                              _busy ? 'Publishing...' : 'Review and Publish',
                             ),
                           ),
                         if (_status == 'published' && _storyId != null)
                           OutlinedButton(
-                            onPressed: () => Navigator.push(
-                              context,
-                              MaterialPageRoute<void>(
-                                builder: (_) =>
-                                    YouthStoryDetailPage(storyId: _storyId!),
-                              ),
-                            ),
+                            onPressed: _openPublishedStory,
                             child: const Text('View Published Story'),
                           ),
                         if (_status == 'under_review' && !widget.isElder)

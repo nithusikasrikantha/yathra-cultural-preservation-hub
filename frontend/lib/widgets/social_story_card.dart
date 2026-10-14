@@ -55,7 +55,9 @@ class _SocialStoryCardState extends State<SocialStoryCard> {
   @override
   Widget build(BuildContext context) {
     final story = widget.story;
-    final author = story.authorName ?? widget.authorName;
+    final author = story.contributorNames.length > 1
+        ? story.displayAuthor
+        : story.authorName ?? widget.authorName;
     final image =
         story.bannerImage ??
         (story.additionalImages.isNotEmpty
@@ -94,7 +96,7 @@ class _SocialStoryCardState extends State<SocialStoryCard> {
                         children: [
                           Text(
                             author,
-                            maxLines: 1,
+                            maxLines: story.contributorNames.length > 1 ? 3 : 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontSize: 15,
