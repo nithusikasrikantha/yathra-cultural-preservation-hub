@@ -7,6 +7,7 @@ const authenticate = require('../middleware/authenticate');
 const { cultureContentAssistantController } = require('../controllers/cultureContentAssistantController');
 
 const router = express.Router();
+router.use(require('./transcriptionRoutes'));
 
 router.post('/story-summary', authenticate, async (req, res) => {
   if (req.user.role !== 'elder') {
@@ -18,8 +19,8 @@ router.post('/story-summary', authenticate, async (req, res) => {
   const { title, storyText, language } = req.body || {};
   if (typeof storyText !== 'string' || !storyText.trim() || storyText.length > 12000 || typeof title !== 'string' || title.length > 180 || !['Tamil', 'Sinhala', 'English'].includes(language)) return res.status(400).json({ message: 'Add a title, language, and story of up to 12,000 characters.' });
   try {
-    const { generateCultureContent } = require('../services/cultureContentAssistantService');
-    const result = await generateCultureContent({ action: 'story-summary', input: { title, storyText }, language });
+    const { generateStorySummary } = require('../services/geminiSummaryService');
+    const result = await generateStorySummary({ title, storyText, language });
     if (typeof result.summary !== 'string' || !result.summary.trim() || result.summary.length > 700) throw new Error('Invalid summary');
     res.json({ summary: result.summary.trim() });
   } catch (_) { res.status(503).json({ message: 'Summary generation is unavailable. Retry or skip the summary to publish your story.' }); }

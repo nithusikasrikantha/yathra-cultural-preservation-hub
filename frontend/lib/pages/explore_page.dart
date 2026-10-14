@@ -1,3 +1,5 @@
+import '../services/auth_service.dart';
+import 'elder/story_details_page.dart';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -943,13 +945,18 @@ class ExploreCategoryPage extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     child: SocialStoryCard(
                       story: story,
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              YouthStoryDetailPage(storyId: story.id),
-                        ),
-                      ),
+                      onTap: () async {
+                        final role = await AuthService.currentRole();
+                        if (!context.mounted) return;
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => role == 'elder'
+                                ? StoryDetailsPage(story: story)
+                                : YouthStoryDetailPage(storyId: story.id),
+                          ),
+                        );
+                      },
                     ),
                   ),
               ],

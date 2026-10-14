@@ -18,6 +18,7 @@ class Story {
     this.aiSummary,
     this.summaryStatus,
     this.authorName,
+    this.authorAvatar,
   });
 
   final String id;
@@ -38,6 +39,7 @@ class Story {
   final String? aiSummary;
   final String? summaryStatus;
   final String? authorName;
+  final String? authorAvatar;
   String get preview =>
       summaryStatus == 'approved' && aiSummary?.isNotEmpty == true
       ? aiSummary!
@@ -70,6 +72,11 @@ class Story {
       communityId: _optionalString(json['communityId']),
       aiSummary: _optionalString(json['aiSummary']),
       summaryStatus: _optionalString(json['summaryStatus']),
+      authorAvatar:
+          json['publishedBy'] is Map &&
+              json['publishedBy']['profileInfo'] is Map
+          ? _optionalString(json['publishedBy']['profileInfo']['avatar'])
+          : null,
       authorName: json['publishedBy'] is Map
           ? _optionalString(json['publishedBy']['name'])
           : null,

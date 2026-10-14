@@ -1,3 +1,4 @@
+import '../../config/api_config.dart';
 import 'package:flutter/material.dart';
 import '../../screens/login_screen.dart';
 import '../../services/auth_service.dart';
@@ -338,7 +339,9 @@ class _ElderProfilePageState extends State<ElderProfilePage> {
           ),
           child: ClipOval(
             child: Image.network(
-              _profile?['avatar']?.toString() ?? '',
+              (_profile?['avatar']?.toString() ?? '').startsWith('/')
+                  ? '${ApiConfig.baseUrl}${_profile!['avatar']}'
+                  : _profile?['avatar']?.toString() ?? '',
               fit: BoxFit.cover,
               errorBuilder: (_, _, _) =>
                   const Icon(Icons.person, size: 56, color: _accentBrown),

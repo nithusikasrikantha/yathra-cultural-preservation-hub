@@ -4,15 +4,14 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:speech_to_text/speech_to_text.dart';
 
 import '../../config/api_config.dart';
+import '../../widgets/story_header_decoration.dart';
 import '../../models/community_theme.dart';
 import '../../services/community_service.dart';
 import '../../services/auth_service.dart';
@@ -113,11 +112,12 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
   // Audio & Speech Engines (Nullable & Safely Initialized)
   AudioRecorder? _audioRecorder;
   AudioPlayer? _audioPlayer;
-  SpeechToText? _speechToText;
-  FlutterTts? _flutterTts;
 
   bool _isConvertingToText = false;
   bool _isSpeaking = false;
+  final AudioPlayer _narrationPlayer = AudioPlayer();
+  StreamSubscription? _narrationSubscription;
+  int _narrationRequest = 0;
   bool _isPublishing = false;
 
   RecordingState _recordingState = RecordingState.notRecorded;
@@ -182,28 +182,6 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
         }
       });
     } catch (_) {}
-
-    try {
-      _speechToText = SpeechToText();
-    } catch (_) {}
-
-    try {
-      _flutterTts = FlutterTts();
-      _flutterTts?.setStartHandler(() {
-        if (mounted) setState(() => _isSpeaking = true);
-      });
-      _flutterTts?.setCompletionHandler(() {
-        if (mounted) setState(() => _isSpeaking = false);
-      });
-      _flutterTts?.setCancelHandler(() {
-        if (mounted) setState(() => _isSpeaking = false);
-      });
-      _flutterTts?.setErrorHandler((msg) {
-        if (mounted) {
-          setState(() => _isSpeaking = false);
-        }
-      });
-    } catch (_) {}
   }
 
   void _populateEditData() {
@@ -242,9 +220,6 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
 
   @override
   void dispose() {
-    try {
-      _flutterTts?.stop();
-    } catch (_) {}
     _timer?.cancel();
     _playerStateSubscription?.cancel();
     try {
@@ -253,6 +228,9 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     try {
       _audioPlayer?.dispose();
     } catch (_) {}
+    _narrationRequest++;
+    _narrationSubscription?.cancel();
+    _narrationPlayer.dispose();
     _categoryController.dispose();
     _summaryController.dispose();
     _titleController.dispose();
@@ -420,30 +398,6 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     return '$minutesStr:$secondsStr';
   }
 
-  String _getLocaleId() {
-    switch (_selectedLanguage) {
-      case 'Tamil':
-        return 'ta_LK';
-      case 'Sinhala':
-        return 'si_LK';
-      case 'English':
-      default:
-        return 'en_US';
-    }
-  }
-
-  String _getTtsLanguageCode() {
-    switch (_selectedLanguage) {
-      case 'Tamil':
-        return 'ta-LK';
-      case 'Sinhala':
-        return 'si-LK';
-      case 'English':
-      default:
-        return 'en-US';
-    }
-  }
-
   // Audio Recording Actions
   Future<void> _startRecording() async {
     try {
@@ -542,75 +496,74 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     }
   }
 
-  // Speech to Text Conversion
+  // Transcribe the saved recording; never start a new microphone session.
   Future<void> _convertVoiceToText() async {
-    if (_recordedFilePath == null || !File(_recordedFilePath!).existsSync()) {
+    if (_isConvertingToText) return;
+    final path = _recordedFilePath;
+    if (path == null || !File(path).existsSync()) {
       _showSnackBar('No recorded audio file found to convert.');
       return;
     }
-
     if (_isSpeaking) await _stopSpeaking();
-
+    if (_recordingState == RecordingState.playing) await _stopPlayback();
+    if (!mounted) return;
+    final originalText = _storyController.text;
     setState(() => _isConvertingToText = true);
-
+    final client = http.Client();
     try {
-      if (_speechToText == null) {
-        _showSnackBar(
-          'Speech recognition service not supported on this device.',
+      if (await File(path).length() > 24 * 1024 * 1024) {
+        throw Exception(
+          'Recording is too large. Use a recording smaller than 24 MB.',
         );
-        setState(() => _isConvertingToText = false);
-        return;
       }
-
-      bool available = await _speechToText!.initialize();
-      final String localeId = _getLocaleId();
-
-      if (!available) {
-        setState(() => _isConvertingToText = false);
-        _showSnackBar('Speech recognition is unavailable.');
-        return;
-      }
-
-      String transcribedResult = '';
-
-      _showSnackBar('Listening to microphone... Speak into microphone now!');
-
-      await _speechToText!.listen(
-        listenOptions: SpeechListenOptions(
-          localeId: localeId,
-          listenMode: ListenMode.dictation,
-          partialResults: true,
-        ),
-        onResult: (result) {
-          transcribedResult = result.recognizedWords;
-          if (transcribedResult.isNotEmpty && mounted) {
-            setState(() {
-              _storyController.text = transcribedResult;
-            });
-          }
-        },
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$_baseUrl/api/ai/audio-transcription'),
       );
-
-      await Future.delayed(const Duration(seconds: 6));
-
-      if (mounted) {
-        if (_speechToText?.isListening == true) {
-          await _speechToText?.stop();
-        }
-
-        setState(() => _isConvertingToText = false);
-
-        if (transcribedResult.isNotEmpty) {
-          _showSnackBar(
-            'Voice converted to text! You can edit the story below.',
-          );
-        } else {
-          _showSnackBar(
-            'No live speech detected. Speak into microphone while converting.',
-          );
-        }
+      final headers = await AuthService.authenticatedHeaders();
+      headers.remove('Content-Type');
+      request.headers.addAll(headers);
+      request.fields['language'] = _selectedLanguage;
+      if (widget.collaborationId != null) {
+        request.fields['connectionId'] = widget.collaborationId!;
       }
-    } catch (e) {
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'audio',
+          path,
+          contentType: MediaType('audio', 'mp4'),
+        ),
+      );
+      final response = await (() async {
+        return http.Response.fromStream(await client.send(request));
+      })().timeout(const Duration(seconds: 120));
+      final data = jsonDecode(response.body);
+      if (response.statusCode != 200) {
+        throw Exception(
+          data['message'] ?? 'Voice conversion failed. Please retry.',
+        );
+      }
+      final text = data['text'];
+      if (text is! String || text.trim().isEmpty) {
+        throw Exception('No speech was found in this recording.');
+      }
+      if (!mounted || _recordedFilePath != path) return;
+      // Preserve any typing done while the request was running.
+      setState(() {
+        _storyController.text = _storyController.text == originalText
+            ? text.trim()
+            : '${_storyController.text.trim()}\n\n${text.trim()}'.trim();
+      });
+      _showSnackBar(
+        'Recording converted to text. Review and edit the story below.',
+      );
+    } on TimeoutException {
+      if (mounted) _showSnackBar('Voice conversion timed out. Please retry.');
+    } catch (error) {
+      if (mounted)
+        _showSnackBar(error.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      client.close();
       if (mounted) setState(() => _isConvertingToText = false);
     }
   }
@@ -628,21 +581,50 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
       return;
     }
 
+    if (_recordingState == RecordingState.recording) {
+      _showSnackBar('Stop recording before reading the story.');
+      return;
+    }
+    if (_recordingState == RecordingState.playing) await _stopPlayback();
+    final requestId = ++_narrationRequest;
+    if (!mounted) return;
+    setState(() => _isSpeaking = true);
+    _showSnackBar('Preparing spoken story...');
     try {
-      final String langCode = _getTtsLanguageCode();
-      await _flutterTts?.setLanguage(langCode);
-      await _flutterTts?.setSpeechRate(0.45);
-      final dynamic result = await _flutterTts?.speak(text);
-      if (mounted) setState(() => _isSpeaking = result == 1);
-    } catch (e) {
-      _showSnackBar('Failed to play voice narration.');
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/api/ai/story-speech'),
+            headers: await AuthService.authenticatedHeaders(),
+            body: jsonEncode({'text': text, 'language': _selectedLanguage}),
+          )
+          .timeout(const Duration(seconds: 120));
+      if (!mounted || requestId != _narrationRequest) return;
+      if (response.statusCode != 200) {
+        final data = jsonDecode(response.body);
+        throw Exception(data['message'] ?? 'Story reading failed.');
+      }
+      await _narrationSubscription?.cancel();
+      _narrationSubscription = _narrationPlayer.onPlayerComplete.listen((_) {
+        if (mounted) setState(() => _isSpeaking = false);
+      });
+      await _narrationPlayer.play(
+        BytesSource(response.bodyBytes, mimeType: 'audio/wav'),
+      );
+    } catch (error) {
+      if (mounted && requestId == _narrationRequest) {
+        setState(() => _isSpeaking = false);
+        _showSnackBar(
+          error is TimeoutException
+              ? 'Story reading timed out. Please retry.'
+              : error.toString().replaceFirst('Exception: ', ''),
+        );
+      }
     }
   }
 
   Future<void> _stopSpeaking() async {
-    try {
-      await _flutterTts?.stop();
-    } catch (_) {}
+    _narrationRequest++;
+    await _narrationPlayer.stop();
     if (mounted) setState(() => _isSpeaking = false);
   }
 
@@ -772,15 +754,24 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     return Scaffold(
       backgroundColor: _bgColor,
       appBar: AppBar(
-        backgroundColor: _primaryBrown,
-        foregroundColor: Colors.white,
+        toolbarHeight: 48,
+        backgroundColor: _bgColor,
+        foregroundColor: _darkBrown,
+        elevation: 0,
+        leadingWidth: 90,
+        leading: TextButton.icon(
+          onPressed: () => Navigator.of(context).maybePop(),
+          icon: const Icon(Icons.arrow_back, size: 20),
+          label: const Text('Back'),
+          style: TextButton.styleFrom(foregroundColor: _primaryBrown),
+        ),
         centerTitle: true,
         title: Text(
-          _isEditing ? 'Edit Story' : 'Add Cultural Story',
+          'YATHRA',
           style: const TextStyle(
             fontSize: 22,
             fontWeight: FontWeight.bold,
-            color: Colors.white,
+            color: _darkBrown,
             fontFamily: 'Serif',
           ),
         ),
@@ -788,10 +779,67 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
       body: SafeArea(
         child: SingleChildScrollView(
           physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.all(20.0),
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 110),
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    const Positioned(
+                      right: -12,
+                      top: -20,
+                      child: IgnorePointer(
+                        child: ExcludeSemantics(
+                          child: SizedBox(
+                            width: 145,
+                            height: 110,
+                            child: CustomPaint(
+                              painter: StoryHeaderDecoration(),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 76),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _isEditing ? 'Edit your story' : 'Share your story',
+                            style: const TextStyle(
+                              fontSize: 28,
+                              fontWeight: FontWeight.bold,
+                              color: _darkBrown,
+                              fontFamily: 'Serif',
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'Your memories matter. Write or speak in your own words.',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.black54,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'Fields marked * are required.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.black54,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
               // Step Progress Header
               _buildStepProgressHeader(),
 
@@ -878,20 +926,7 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Step 1: Primary Story Content',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: _darkBrown,
-            fontFamily: 'Serif',
-          ),
-        ),
-        const SizedBox(height: 6),
-        const Text(
-          'Share your story by typing or recording your voice. Either text or voice is required.',
-          style: TextStyle(fontSize: 14, color: Colors.black54),
-        ),
+        _buildNumberedHeading(1, 'Story details'),
         const SizedBox(height: 20),
 
         _buildSectionLabel('Story Title *'),
@@ -935,7 +970,7 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
         ),
         const SizedBox(height: 20),
 
-        _buildSectionLabel('Language *'),
+        _buildSectionLabel('Story language *'),
         const SizedBox(height: 8),
         _buildDropdownContainer(
           value: _selectedLanguage,
@@ -946,22 +981,77 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
         ),
         const SizedBox(height: 20),
 
-        _buildSectionLabel('Story Content'),
+        const Text(
+          'Choose the language you will write or speak.',
+          style: TextStyle(fontSize: 12, color: Colors.black54),
+        ),
+        const SizedBox(height: 20),
+        _buildNumberedHeading(2, 'Tell your story'),
+        const SizedBox(height: 6),
+        const Text(
+          'Type below, or use your voice.',
+          style: TextStyle(fontSize: 14, color: Colors.black54),
+        ),
+        const SizedBox(height: 8),
+        _buildVoiceRecordingCard(),
+        const SizedBox(height: 24),
+        _buildSectionLabel('Your story *'),
         const SizedBox(height: 8),
         TextField(
           controller: _storyController,
           maxLines: 6,
           style: const TextStyle(fontSize: 17, color: _darkBrown),
-          decoration: _buildInputDecoration('Write your story here...'),
+          decoration: _buildInputDecoration('Write your memories here...'),
         ),
         const SizedBox(height: 10),
-        _buildTtsButton(),
-
+        const Text(
+          'You can correct any words after converting your recording.',
+          style: TextStyle(fontSize: 12, color: Colors.black54),
+        ),
         const SizedBox(height: 24),
-
-        _buildSectionLabel('Voice Story'),
+        _buildNumberedHeading(3, 'Listen and review'),
+        const SizedBox(height: 6),
+        const Text(
+          'Hear the text you have written.',
+          style: TextStyle(fontSize: 14, color: Colors.black54),
+        ),
         const SizedBox(height: 8),
-        _buildVoiceRecordingCard(),
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: _primaryBrown.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: _primaryBrown.withValues(alpha: 0.3)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.headphones, color: _primaryBrown, size: 28),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Listen to your story',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: _darkBrown,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _buildTtsButton(),
+              const SizedBox(height: 8),
+              const Text(
+                'Check the words before publishing.',
+                style: TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+            ],
+          ),
+        ),
 
         const SizedBox(height: 28),
 
@@ -992,9 +1082,60 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
             ),
           ),
         ),
+        if (!widget.embedded) ...[
+          const SizedBox(height: 12),
+          _buildSaveDraftButton(),
+        ],
       ],
     );
   }
+
+  Widget _buildNumberedHeading(int number, String title) => Row(
+    children: [
+      CircleAvatar(
+        radius: 15,
+        backgroundColor: _primaryBrown.withValues(alpha: 0.12),
+        child: Text(
+          '$number',
+          style: const TextStyle(
+            color: _darkBrown,
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+          ),
+        ),
+      ),
+      const SizedBox(width: 12),
+      Expanded(
+        child: Text(
+          title,
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: _darkBrown,
+            fontFamily: 'Serif',
+          ),
+        ),
+      ),
+    ],
+  );
+
+  Widget _buildSaveDraftButton() => SizedBox(
+    width: double.infinity,
+    height: 52,
+    child: OutlinedButton.icon(
+      onPressed: () => _showSnackBar('Story saved as draft!'),
+      icon: const Icon(Icons.save_outlined),
+      label: const Text(
+        'Save Draft',
+        style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+      ),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: _primaryBrown,
+        side: const BorderSide(color: _primaryBrown, width: 1.5),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    ),
+  );
 
   String _imageUrl(String path) =>
       path.startsWith('/') ? '$_baseUrl$path' : path;
@@ -1598,57 +1739,62 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
     );
   }
 
-  Widget _buildNotRecordedState() {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: _primaryBrown.withValues(alpha: 0.1),
-            shape: BoxShape.circle,
-          ),
-          child: const Icon(Icons.mic, color: _primaryBrown, size: 32),
-        ),
-        const SizedBox(width: 16),
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Record Your Voice',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: _darkBrown,
+  Widget _buildNotRecordedState() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Row(
+        children: [
+          Icon(Icons.mic, color: _primaryBrown, size: 32),
+          SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Speak to write',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: _darkBrown,
+                  ),
                 ),
-              ),
-              SizedBox(height: 4),
-              Text(
-                'Share your story using your voice',
-                style: TextStyle(fontSize: 14, color: Colors.black54),
-              ),
-            ],
+                SizedBox(height: 4),
+                Text(
+                  'Record your voice, then convert it to editable text.',
+                  style: TextStyle(fontSize: 14, color: Colors.black54),
+                ),
+              ],
+            ),
           ),
-        ),
-        ElevatedButton(
+        ],
+      ),
+      const SizedBox(height: 16),
+      SizedBox(
+        width: double.infinity,
+        height: 52,
+        child: ElevatedButton.icon(
+          onPressed: _startRecording,
+          icon: const Icon(Icons.mic),
+          label: const Text(
+            'Start recording',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+          ),
           style: ElevatedButton.styleFrom(
-            minimumSize: const Size(0, 50),
             backgroundColor: _primaryBrown,
             foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
             ),
           ),
-          onPressed: _startRecording,
-          child: const Text(
-            'Record',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
         ),
-      ],
-    );
-  }
+      ),
+      const SizedBox(height: 8),
+      Text(
+        'Speak in $_selectedLanguage. Tap Stop recording when you finish.',
+        style: const TextStyle(fontSize: 12, color: Colors.black54),
+      ),
+    ],
+  );
 
   Widget _buildRecordingState() {
     return Column(
@@ -1902,7 +2048,7 @@ class _ShareStoryPageState extends State<ShareStoryPage> {
         ),
         icon: const Icon(Icons.record_voice_over, size: 22),
         label: const Text(
-          'Convert Voice to Text',
+          'Convert Recording to Text',
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
         onPressed: _convertVoiceToText,
