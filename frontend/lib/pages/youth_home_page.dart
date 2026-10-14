@@ -37,7 +37,6 @@ class _YouthHomePageState extends State<YouthHomePage> {
   final BookmarkService _bookmarkService = BookmarkService.instance;
   final StoryCommentService _commentService = StoryCommentService();
   List<Story> _stories = const [];
-  bool _showingDummyStories = false;
   String _search = "";
   bool _isLoading = true;
   bool _following = false;
@@ -54,6 +53,9 @@ class _YouthHomePageState extends State<YouthHomePage> {
     _dummyStore.addListener(_onBookmarksChanged);
     _bookmarkService.addListener(_onBookmarksChanged);
     _initializeBookmarks();
+    _bookmarks.addListener(_onBookmarksChanged);
+    _bookmarks.load().catchError((_) {});
+    PublishedContentSignal.revision.addListener(_load);
     _load();
   }
 
@@ -61,6 +63,8 @@ class _YouthHomePageState extends State<YouthHomePage> {
   void dispose() {
     _dummyStore.removeListener(_onBookmarksChanged);
     _bookmarkService.removeListener(_onBookmarksChanged);
+    _bookmarks.removeListener(_onBookmarksChanged);
+    PublishedContentSignal.revision.removeListener(_load);
     super.dispose();
   }
 
@@ -179,33 +183,7 @@ class _YouthHomePageState extends State<YouthHomePage> {
   void _openStory(Story story) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => YouthStoryDetailPage(
-          storyId: story.id,
-          preloadedStory: _dummyStore.isDummyId(story.id) ? story : null,
-        ),
-      ),
-    );
-  }
-
-  void _showDummyComments() {
-    showModalBottomSheet<void>(
-      context: context,
-      builder: (context) => const SafeArea(
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Row(
-            children: [
-              Icon(Icons.chat_bubble_outline_rounded, color: _accentBrown),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Comments are demo-only for temporary Youth content.',
-                  style: TextStyle(fontSize: 16, height: 1.4),
-                ),
-              ),
-            ],
-          ),
-        ),
+        builder: (_) => YouthStoryDetailPage(storyId: story.id),
       ),
     );
   }
@@ -342,9 +320,6 @@ class _YouthHomePageState extends State<YouthHomePage> {
         for (final story in visibleStories)
           YouthStoryCard(
             story: story,
-            dummyMetadata: _showingDummyStories
-                ? _dummyStore.metadataFor(story.id)
-                : null,
             onTap: () => _openStory(story),
             isBookmarked: _dummyStore.isDummyId(story.id)
                 ? _dummyStore.isBookmarked(story.id)
