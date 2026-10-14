@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import '../widgets/home_header.dart';
 
 import '../models/story.dart';
-import '../services/youth_dummy_content_store.dart';
+import '../services/bookmark_service.dart';
+import '../services/published_content_signal.dart';
 import '../widgets/youth_story_card.dart';
 import '../services/story_service.dart';
 import 'youth_story_detail_page.dart';
@@ -30,9 +31,8 @@ class _YouthHomePageState extends State<YouthHomePage> {
   static const Color _primaryBrown = Color(0xFF4A2C1A);
   static const Color _accentBrown = Color(0xFF6B4226);
 
-  final YouthDummyContentStore _dummyStore = YouthDummyContentStore.instance;
+  final BookmarkService _bookmarks = BookmarkService.instance;
   List<Story> _stories = const [];
-  bool _showingDummyStories = false;
   String _search = "";
   bool _isLoading = true;
   bool _following = false;
@@ -42,13 +42,16 @@ class _YouthHomePageState extends State<YouthHomePage> {
   @override
   void initState() {
     super.initState();
-    _dummyStore.addListener(_onBookmarksChanged);
+    _bookmarks.addListener(_onBookmarksChanged);
+    _bookmarks.load().catchError((_) {});
+    PublishedContentSignal.revision.addListener(_load);
     _load();
   }
 
   @override
   void dispose() {
-    _dummyStore.removeListener(_onBookmarksChanged);
+    _bookmarks.removeListener(_onBookmarksChanged);
+    PublishedContentSignal.revision.removeListener(_load);
     super.dispose();
   }
 
@@ -63,17 +66,14 @@ class _YouthHomePageState extends State<YouthHomePage> {
       _feedError = null;
     });
     try {
-      final stories = _following
-          ? (await const StoryService().fetchStories(
-              page: 1,
-              limit: 50,
-              following: true,
-            )).items
-          : _dummyStore.stories;
+      final stories = (await const StoryService().fetchStories(
+        page: 1,
+        limit: 20,
+        following: _following,
+      )).items;
       if (!mounted || version != _loadVersion) return;
       setState(() {
         _stories = stories;
-        _showingDummyStories = !_following;
         _isLoading = false;
       });
     } catch (_) {
@@ -85,38 +85,23 @@ class _YouthHomePageState extends State<YouthHomePage> {
     }
   }
 
-  void _toggleBookmark(Story story) => _dummyStore.toggleBookmark(story.id);
+  Future<void> _toggleBookmark(Story story) async {
+    try {
+      await _bookmarks.toggle(story.id);
+    } catch (_) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not save the story. Please retry.'),
+          ),
+        );
+    }
+  }
 
   void _openStory(Story story) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => YouthStoryDetailPage(
-          storyId: story.id,
-          preloadedStory: _dummyStore.isDummyId(story.id) ? story : null,
-        ),
-      ),
-    );
-  }
-
-  void _showDummyComments() {
-    showModalBottomSheet<void>(
-      context: context,
-      builder: (context) => const SafeArea(
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Row(
-            children: [
-              Icon(Icons.chat_bubble_outline_rounded, color: _accentBrown),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Comments are demo-only for temporary Youth content.',
-                  style: TextStyle(fontSize: 16, height: 1.4),
-                ),
-              ),
-            ],
-          ),
-        ),
+        builder: (_) => YouthStoryDetailPage(storyId: story.id),
       ),
     );
   }
@@ -231,16 +216,9 @@ class _YouthHomePageState extends State<YouthHomePage> {
         ))
           YouthStoryCard(
             story: story,
-            dummyMetadata: _showingDummyStories
-                ? _dummyStore.metadataFor(story.id)
-                : null,
             onTap: () => _openStory(story),
-            isBookmarked: _dummyStore.isBookmarked(story.id),
+            isBookmarked: _bookmarks.isBookmarked(story.id),
             onBookmark: () => _toggleBookmark(story),
-            onLike: _showingDummyStories
-                ? () => _dummyStore.toggleLike(story.id)
-                : null,
-            onComment: _showingDummyStories ? _showDummyComments : null,
           ),
       ],
     );
